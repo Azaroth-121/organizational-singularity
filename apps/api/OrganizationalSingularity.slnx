@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OrganizationalSingularity.Api/OrganizationalSingularity.Api.csproj" />
+    <Project Path="src/OrganizationalSingularity.Domain/OrganizationalSingularity.Domain.csproj" />
+    <Project Path="src/OrganizationalSingularity.Infrastructure/OrganizationalSingularity.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OrganizationalSingularity.Domain.Tests/OrganizationalSingularity.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

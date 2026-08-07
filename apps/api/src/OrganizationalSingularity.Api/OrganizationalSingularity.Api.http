@@ -1,0 +1,6 @@
+@OrganizationalSingularity.Api_HostAddress = http://localhost:5262
+
+GET {{OrganizationalSingularity.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
