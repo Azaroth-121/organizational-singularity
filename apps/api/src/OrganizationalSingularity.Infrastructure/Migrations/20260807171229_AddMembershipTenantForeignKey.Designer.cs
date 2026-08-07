@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using OrganizationalSingularity.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using OrganizationalSingularity.Infrastructure.Persistence;
 namespace OrganizationalSingularity.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260807171229_AddMembershipTenantForeignKey")]
+    partial class AddMembershipTenantForeignKey
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -274,45 +277,6 @@ namespace OrganizationalSingularity.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("MaturityLevels");
-                });
-
-            modelBuilder.Entity("OrganizationalSingularity.Domain.Identity.Invitation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("InvitedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Role")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "Email")
-                        .IsUnique()
-                        .HasFilter("\"ConsumedAtUtc\" IS NULL");
-
-                    b.ToTable("Invitations");
                 });
 
             modelBuilder.Entity("OrganizationalSingularity.Domain.Identity.Membership", b =>

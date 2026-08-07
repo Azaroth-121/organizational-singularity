@@ -20,6 +20,8 @@ public class Membership : TenantOwnedEntity
     public Guid UserId { get; set; }
     public User? User { get; set; }
 
+    public Tenant? Tenant { get; set; }
+
     public MembershipRole Role { get; set; }
 
     public DateTimeOffset InvitedAtUtc { get; set; } = DateTimeOffset.UtcNow;

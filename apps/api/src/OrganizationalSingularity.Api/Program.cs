@@ -1,4 +1,9 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Identity.Web;
+using OrganizationalSingularity.Api.Endpoints;
+using OrganizationalSingularity.Infrastructure.Identity;
 using OrganizationalSingularity.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,12 +13,18 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+builder.Services.AddAuthorization();
+
 var connectionString = builder.Configuration["OS_DATABASE_CONNECTION_STRING"]
     ?? builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException(
         "No database connection string configured. Set OS_DATABASE_CONNECTION_STRING or ConnectionStrings:Default.");
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddScoped<UserProvisioningService>();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres");
@@ -28,6 +39,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -41,6 +53,54 @@ app.MapGet("/api/v1/health", (IHostEnvironment env) => Results.Ok(new
     environment = env.EnvironmentName,
     version = "0.0.1"
 }));
+
+app.MapGet("/api/v1/me", (ClaimsPrincipal user) => Results.Ok(new
+{
+    name = user.GetDisplayName(),
+    email = user.GetLoginHint(),
+    oid = user.GetObjectId(),
+    tenantId = user.GetTenantId()
+}))
+    .RequireAuthorization();
+
+app.MapGet("/api/v1/me/memberships", async (
+    ClaimsPrincipal claims,
+    UserProvisioningService provisioning,
+    AppDbContext db,
+    CancellationToken ct) =>
+{
+    var entraObjectId = claims.GetObjectId();
+    if (string.IsNullOrEmpty(entraObjectId))
+    {
+        return Results.Problem("Token is missing an oid claim.", statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var user = await provisioning.GetOrProvisionUserAsync(
+        entraObjectId,
+        TenantAuthorization.GetBestEmail(claims),
+        claims.GetDisplayName() ?? string.Empty,
+        ct);
+
+    await provisioning.EnsureBootstrapMembershipAsync(user, ct);
+
+    var memberships = await db.Memberships
+        .Where(m => m.UserId == user.Id)
+        .Select(m => new
+        {
+            tenantId = m.TenantId,
+            tenantName = m.Tenant!.Name,
+            tenantSlug = m.Tenant!.Slug,
+            role = m.Role.ToString(),
+        })
+        .ToListAsync(ct);
+
+    return Results.Ok(new { userId = user.Id, memberships });
+})
+    .RequireAuthorization();
+
+app.MapOrganizationEndpoints();
+app.MapMembershipEndpoints();
+app.MapInvitationEndpoints();
 
 app.Run();
 

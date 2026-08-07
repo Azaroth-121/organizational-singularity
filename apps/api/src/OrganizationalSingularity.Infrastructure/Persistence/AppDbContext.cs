@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Membership> Memberships => Set<Membership>();
+    public DbSet<Invitation> Invitations => Set<Invitation>();
 
     public DbSet<Organization> Organizations => Set<Organization>();
 
@@ -46,6 +47,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany(u => u.Memberships)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Tenant)
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Invitation>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            // Filtered: a tenant can't have two simultaneous pending invites for the same
+            // email, but a consumed one doesn't block a later new invite.
+            e.HasIndex(x => new { x.TenantId, x.Email })
+                .IsUnique()
+                .HasFilter("\"ConsumedAtUtc\" IS NULL");
         });
 
         modelBuilder.Entity<Organization>(e =>
