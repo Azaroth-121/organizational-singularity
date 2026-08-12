@@ -5,6 +5,7 @@ using OrganizationalSingularity.Domain.Framework;
 using OrganizationalSingularity.Domain.Identity;
 using OrganizationalSingularity.Domain.IntelligenceDebt;
 using OrganizationalSingularity.Domain.Organizations;
+using OrganizationalSingularity.Domain.Roadmap;
 
 namespace OrganizationalSingularity.Infrastructure.Persistence;
 
@@ -34,6 +35,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<IntelligenceDebtEvidence> IntelligenceDebtEvidence => Set<IntelligenceDebtEvidence>();
     public DbSet<IntelligenceDebtDependency> IntelligenceDebtDependencies => Set<IntelligenceDebtDependency>();
     public DbSet<IntelligenceDebtCategoryMapping> IntelligenceDebtCategoryMappings => Set<IntelligenceDebtCategoryMapping>();
+
+    public DbSet<Initiative> Initiatives => Set<Initiative>();
+    public DbSet<InitiativeMilestone> InitiativeMilestones => Set<InitiativeMilestone>();
+    public DbSet<InitiativeDependency> InitiativeDependencies => Set<InitiativeDependency>();
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -298,6 +303,55 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(x => x.DependsOnFinding)
                 .WithMany()
                 .HasForeignKey(x => x.DependsOnFindingId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Initiative>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            e.HasIndex(x => x.SourceFindingId).IsUnique();
+            e.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.SourceFinding)
+                .WithMany()
+                .HasForeignKey(x => x.SourceFindingId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.OwnerUser)
+                .WithMany()
+                .HasForeignKey(x => x.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<InitiativeMilestone>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasOne(x => x.Initiative)
+                .WithMany(i => i.Milestones)
+                .HasForeignKey(x => x.InitiativeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InitiativeDependency>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasIndex(x => new { x.InitiativeId, x.DependsOnInitiativeId }).IsUnique();
+            // Restrict (not Cascade) on both sides: both FKs point at Initiative, and
+            // Postgres/EF reject multiple cascade paths into the same table (same pattern
+            // as IntelligenceDebtDependency).
+            e.HasOne(x => x.Initiative)
+                .WithMany()
+                .HasForeignKey(x => x.InitiativeId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.DependsOnInitiative)
+                .WithMany()
+                .HasForeignKey(x => x.DependsOnInitiativeId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
