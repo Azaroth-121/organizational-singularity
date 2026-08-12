@@ -134,7 +134,12 @@ export default async function AssessmentDetailPage({ params }: { params: Promise
       </div>
 
       {isFinal ? (
-        <AssessmentResultView accessToken={accessToken} tenantId={tenantId} assessmentId={id} />
+        <>
+          <Link href={`/assessments/${id}/report`} className="self-start text-sm underline-offset-2 hover:underline">
+            View executive report →
+          </Link>
+          <AssessmentResultView accessToken={accessToken} tenantId={tenantId} assessmentId={id} />
+        </>
       ) : (
         <>
           {!isEditable && (
