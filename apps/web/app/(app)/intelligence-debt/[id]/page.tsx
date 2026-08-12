@@ -9,6 +9,8 @@ import {
   getIntelligenceDebtFinding,
   updateIntelligenceDebtFinding,
   transitionIntelligenceDebtFinding,
+  reviewIntelligenceDebtFinding,
+  getIntelligenceDebtHistory,
   addIntelligenceDebtEvidence,
   addIntelligenceDebtDependency,
   removeIntelligenceDebtDependency,
@@ -18,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ADMIN_TIER_ROLES } from "../../members/roles";
 import { CATEGORY_LABELS, STATUS_LABELS, SEVERITY_TONE, ALLOWED_TRANSITIONS } from "../values";
 import { TransitionActions, type TransitionState } from "./transition-actions";
+import { ReviewPanel, type ReviewState } from "./review-panel";
 import { EvidenceForm, type EvidenceFormState } from "./evidence-form";
 import { AddDependencyForm, RemoveDependencyButton, type DependencyFormState } from "./dependency-form";
 import { EditFindingForm, type EditFindingState } from "./edit-finding-form";
@@ -83,6 +86,11 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
   const membersResult = await listTenantMembers(accessToken, tenantId);
   const members = membersResult.ok ? membersResult.data : [];
 
+  const historyResult = await getIntelligenceDebtHistory(accessToken, tenantId, findingId);
+  const history = historyResult.ok ? historyResult.data : [];
+
+  const isUnderReview = finding.status === "Detected" || finding.status === "EvidenceReviewed";
+
   async function transitionAction(
     toStatus: string,
     _prevState: TransitionState,
@@ -103,6 +111,34 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
     });
     if (!result.ok) {
       return { error: result.message ?? `Transition failed: API returned ${result.status ?? "a network error"}.` };
+    }
+
+    revalidatePath(`/intelligence-debt/${findingId}`);
+    return { error: null };
+  }
+
+  async function reviewAction(
+    outcome: string,
+    _prevState: ReviewState,
+    formData: FormData
+  ): Promise<ReviewState> {
+    "use server";
+    const token = await getApiAccessToken();
+    if (!token) return { error: "No API access token available. Sign out and back in." };
+
+    const current = await getIntelligenceDebtFinding(token, tenantId, findingId);
+    if (!current.ok) return { error: "Could not load the current finding version." };
+
+    const rationale = String(formData.get("rationale") ?? "").trim();
+    if (!rationale) return { error: "Rationale is required." };
+
+    const result = await reviewIntelligenceDebtFinding(token, tenantId, findingId, {
+      expectedVersion: current.data.version,
+      outcome,
+      rationale,
+    });
+    if (!result.ok) {
+      return { error: result.message ?? `Review failed: API returned ${result.status ?? "a network error"}.` };
     }
 
     revalidatePath(`/intelligence-debt/${findingId}`);
@@ -235,15 +271,21 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
       {isAdminTier && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Status</CardTitle>
+            <CardTitle className="text-base">{isUnderReview ? "Review" : "Status"}</CardTitle>
             <CardDescription>
-              {allowedTransitions.length === 0
-                ? "This finding is in a terminal state."
-                : "Only admin-tier roles can change status."}
+              {isUnderReview
+                ? "Only admin-tier roles can review candidate findings."
+                : allowedTransitions.length === 0
+                  ? "This finding is in a terminal state."
+                  : "Only admin-tier roles can change status."}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <TransitionActions allowedTransitions={allowedTransitions} action={transitionAction} />
+            {isUnderReview ? (
+              <ReviewPanel action={reviewAction} />
+            ) : (
+              <TransitionActions allowedTransitions={allowedTransitions} action={transitionAction} />
+            )}
           </CardContent>
         </Card>
       )}
@@ -395,6 +437,36 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Audit history</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {history.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No events recorded yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {history.map((event) => (
+                <li key={event.id} className="rounded-md bg-muted px-3 py-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{event.eventType}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {event.actorName ?? "system"} · {new Date(event.occurredAtUtc).toLocaleString()}
+                    </span>
+                  </div>
+                  {event.payload && "rationale" in event.payload && typeof event.payload.rationale === "string" && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {"outcome" in event.payload ? `${String(event.payload.outcome)}: ` : ""}
+                      {event.payload.rationale}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

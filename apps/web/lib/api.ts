@@ -333,6 +333,35 @@ export function transitionIntelligenceDebtFinding(
   });
 }
 
+export function reviewIntelligenceDebtFinding(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  body: { expectedVersion: number; outcome: string; rationale: string }
+): Promise<ApiResult<ApiIntelligenceDebtSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/review`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export interface ApiIntelligenceDebtHistoryEvent {
+  id: string;
+  eventType: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  occurredAtUtc: string;
+  payload: Record<string, unknown> | null;
+}
+
+export function getIntelligenceDebtHistory(
+  accessToken: string,
+  tenantId: string,
+  findingId: string
+): Promise<ApiResult<ApiIntelligenceDebtHistoryEvent[]>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/history`, accessToken);
+}
+
 export function addIntelligenceDebtEvidence(
   accessToken: string,
   tenantId: string,

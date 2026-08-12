@@ -21,6 +21,8 @@ public static class IntelligenceDebtEndpoints
         group.MapPost("", CreateAsync);
         group.MapPut("/{findingId:guid}", UpdateAsync);
         group.MapPost("/{findingId:guid}/transition", TransitionAsync);
+        group.MapPost("/{findingId:guid}/review", ReviewAsync);
+        group.MapGet("/{findingId:guid}/history", GetHistoryAsync);
         group.MapPost("/{findingId:guid}/evidence", AddEvidenceAsync);
         group.MapPost("/{findingId:guid}/dependencies", AddDependencyAsync);
         group.MapDelete("/{findingId:guid}/dependencies/{dependencyId:guid}", RemoveDependencyAsync);
@@ -37,6 +39,14 @@ public static class IntelligenceDebtEndpoints
         string? RecommendedAction, string? RemediationPlan, string? ValidationCriteria);
 
     public record TransitionRequest(int ExpectedVersion, string ToStatus, string? Outcome);
+
+    /// <summary>The four review outcomes are UI/audit-trail labels layered onto the existing,
+    /// already-tested IntelligenceDebtStateMachine graph -- they do not add new statuses.
+    /// Accepted/Modified both land on ApprovedFinding (Modified only differs in that the
+    /// caller is expected to have already called UpdateAsync first; this endpoint doesn't
+    /// duplicate field-editing); Rejected lands on Rejected; EvidenceRequired either stays
+    /// at Detected or bounces EvidenceReviewed back to Detected.</summary>
+    public record ReviewRequest(int ExpectedVersion, string Outcome, string Rationale);
 
     public record EvidenceRequest(string EvidenceType, string Description, string? SourceReference,
         Guid? AssessmentResponseId, Guid? DocumentId, string? ExternalUri);
@@ -391,6 +401,164 @@ public static class IntelligenceDebtEndpoints
 
         await db.SaveChangesAsync(ct);
         return Results.Ok(ToSummaryDto(finding));
+    }
+
+    private static readonly HashSet<string> ValidReviewOutcomes =
+        new(StringComparer.OrdinalIgnoreCase) { "Accepted", "Modified", "Rejected", "EvidenceRequired" };
+
+    private static async Task<IResult> ReviewAsync(
+        Guid tenantId, Guid findingId, ReviewRequest request, ClaimsPrincipal claims,
+        UserProvisioningService provisioning, AppDbContext db, CancellationToken ct)
+    {
+        var (membership, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
+        if (error is not null) return error;
+        if (!TenantAuthorization.IsAdminTier(membership!))
+        {
+            return Results.Problem("This role cannot review Intelligence Debt findings.", statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!ValidReviewOutcomes.Contains(request.Outcome))
+        {
+            return Results.Problem(
+                $"Invalid outcome '{request.Outcome}'. Valid values: {string.Join(", ", ValidReviewOutcomes)}.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        if (string.IsNullOrWhiteSpace(request.Rationale))
+        {
+            return Results.Problem("Rationale is required for a review decision.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var finding = await db.IntelligenceDebtFindings.SingleOrDefaultAsync(f => f.Id == findingId && f.TenantId == tenantId, ct);
+        if (finding is null) return Results.NotFound();
+        if (finding.Version != request.ExpectedVersion)
+        {
+            return Results.Problem("This finding was changed by someone else. Reload and try again.", statusCode: StatusCodes.Status409Conflict);
+        }
+        if (finding.Status is not (IntelligenceDebtStatus.Detected or IntelligenceDebtStatus.EvidenceReviewed))
+        {
+            return Results.Problem("Only a Detected or Evidence Reviewed finding can be reviewed.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var fromStatus = finding.Status;
+        var now = DateTimeOffset.UtcNow;
+        IntelligenceDebtStatus toStatus;
+
+        switch (request.Outcome.ToLowerInvariant())
+        {
+            case "accepted":
+            case "modified":
+                // Detected findings pass through EvidenceReviewed on the way to Approved.
+                // Both hops are validated against the state machine even though only the
+                // final status is persisted -- one reviewer action instead of a two-click
+                // dance through an intermediate checkpoint that was never really meaningful
+                // to expose separately here.
+                if (fromStatus == IntelligenceDebtStatus.Detected &&
+                    !IntelligenceDebtStateMachine.IsAllowed(IntelligenceDebtStatus.Detected, IntelligenceDebtStatus.EvidenceReviewed))
+                {
+                    return Results.Problem("Cannot move this finding to Evidence Reviewed.", statusCode: StatusCodes.Status409Conflict);
+                }
+                if (!IntelligenceDebtStateMachine.IsAllowed(IntelligenceDebtStatus.EvidenceReviewed, IntelligenceDebtStatus.ApprovedFinding))
+                {
+                    return Results.Problem("Cannot approve this finding.", statusCode: StatusCodes.Status409Conflict);
+                }
+                toStatus = IntelligenceDebtStatus.ApprovedFinding;
+                finding.ApprovedAtUtc = now;
+                finding.ApprovedByUserId = membership!.UserId;
+                break;
+
+            case "rejected":
+                if (!IntelligenceDebtStateMachine.IsAllowed(fromStatus, IntelligenceDebtStatus.Rejected))
+                {
+                    return Results.Problem("Cannot reject this finding from its current status.", statusCode: StatusCodes.Status409Conflict);
+                }
+                toStatus = IntelligenceDebtStatus.Rejected;
+                break;
+
+            case "evidencerequired":
+                if (fromStatus == IntelligenceDebtStatus.EvidenceReviewed)
+                {
+                    if (!IntelligenceDebtStateMachine.IsAllowed(fromStatus, IntelligenceDebtStatus.Detected))
+                    {
+                        return Results.Problem("Cannot send this finding back for more evidence.", statusCode: StatusCodes.Status409Conflict);
+                    }
+                    toStatus = IntelligenceDebtStatus.Detected;
+                }
+                else
+                {
+                    // Already Detected: no status change, just a logged request for more
+                    // evidence -- there is nowhere "earlier" to send it back to.
+                    toStatus = fromStatus;
+                }
+                break;
+
+            default:
+                return Results.Problem("Unreachable.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        finding.Status = toStatus;
+        finding.Version++;
+        finding.UpdatedAtUtc = now;
+
+        if (toStatus != fromStatus)
+        {
+            db.AuditEvents.Add(new AuditEvent
+            {
+                TenantId = tenantId,
+                ActorUserId = membership!.UserId,
+                EventType = IntelligenceDebtStateMachine.AuditEventTypeFor(fromStatus, toStatus),
+                EntityType = "IntelligenceDebtFinding",
+                EntityId = finding.Id,
+                PayloadJson = JsonSerializer.Serialize(new { from = fromStatus.ToString(), to = toStatus.ToString() }),
+            });
+        }
+
+        db.AuditEvents.Add(new AuditEvent
+        {
+            TenantId = tenantId,
+            ActorUserId = membership!.UserId,
+            EventType = "IntelligenceDebt.Reviewed",
+            EntityType = "IntelligenceDebtFinding",
+            EntityId = finding.Id,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                outcome = request.Outcome,
+                rationale = request.Rationale,
+                from = fromStatus.ToString(),
+                to = toStatus.ToString(),
+            }),
+        });
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToSummaryDto(finding));
+    }
+
+    private static async Task<IResult> GetHistoryAsync(
+        Guid tenantId, Guid findingId, ClaimsPrincipal claims, UserProvisioningService provisioning, AppDbContext db, CancellationToken ct)
+    {
+        var (_, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
+        if (error is not null) return error;
+
+        var findingExists = await db.IntelligenceDebtFindings.AnyAsync(f => f.Id == findingId && f.TenantId == tenantId, ct);
+        if (!findingExists) return Results.NotFound();
+
+        var events = await db.AuditEvents
+            .Where(e => e.TenantId == tenantId && e.EntityType == "IntelligenceDebtFinding" && e.EntityId == findingId)
+            .OrderByDescending(e => e.OccurredAtUtc)
+            .ToListAsync(ct);
+
+        var actorIds = events.Where(e => e.ActorUserId is not null).Select(e => e.ActorUserId!.Value).Distinct().ToList();
+        var actorNames = await db.Users
+            .Where(u => actorIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+
+        return Results.Ok(events.Select(e => new
+        {
+            id = e.Id,
+            eventType = e.EventType,
+            actorUserId = e.ActorUserId,
+            actorName = e.ActorUserId is Guid actorId ? actorNames.GetValueOrDefault(actorId) : null,
+            occurredAtUtc = e.OccurredAtUtc,
+            payload = string.IsNullOrEmpty(e.PayloadJson) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
+        }));
     }
 
     private static async Task<IResult> AddEvidenceAsync(
