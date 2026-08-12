@@ -136,6 +136,7 @@ app.MapOrganizationEndpoints();
 app.MapMembershipEndpoints();
 app.MapInvitationEndpoints();
 app.MapIntelligenceDebtEndpoints();
+app.MapAssessmentEndpoints();
 
 app.Run();
 
