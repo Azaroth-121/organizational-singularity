@@ -1,12 +1,6 @@
 import NextAuth from "next-auth";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 
-// Auth.js issuer is the tenant-specific v2.0 authority (no trailing slash, see
-// AUTH_MICROSOFT_ENTRA_ID_ISSUER: ".../<tenant>/v2.0"). The OAuth2 token endpoint is
-// ".../<tenant>/oauth2/v2.0/token" -- strip the issuer's own "/v2.0" suffix before
-// appending, or this doubles up into ".../v2.0/oauth2/v2.0/token" and 404s.
-const TOKEN_ENDPOINT = `${process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER!.replace(/\/v2\.0\/?$/, "")}/oauth2/v2.0/token`;
-
 interface RefreshedTokens {
   access_token: string;
   refresh_token?: string;
@@ -14,7 +8,16 @@ interface RefreshedTokens {
 }
 
 async function refreshApiAccessToken(refreshToken: string): Promise<RefreshedTokens> {
-  const response = await fetch(TOKEN_ENDPOINT, {
+  // Computed lazily (not at module scope) so this file can be imported -- e.g. during
+  // `next build`'s page-data collection -- without AUTH_MICROSOFT_ENTRA_ID_ISSUER needing
+  // to be present at build time, only at request time. Auth.js issuer is the
+  // tenant-specific v2.0 authority (no trailing slash, see AUTH_MICROSOFT_ENTRA_ID_ISSUER:
+  // ".../<tenant>/v2.0"). The OAuth2 token endpoint is ".../<tenant>/oauth2/v2.0/token" --
+  // strip the issuer's own "/v2.0" suffix before appending, or this doubles up into
+  // ".../v2.0/oauth2/v2.0/token" and 404s.
+  const tokenEndpoint = `${process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER!.replace(/\/v2\.0\/?$/, "")}/oauth2/v2.0/token`;
+
+  const response = await fetch(tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

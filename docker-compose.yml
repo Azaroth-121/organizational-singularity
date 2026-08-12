@@ -33,7 +33,15 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_BASE_URL: "http://localhost:5080"
+      # "localhost" here would mean this container, not the api container -- server-to-server
+      # calls between compose services go through the service name instead. Container-internal
+      # port (8080), not the host-mapped one (5080).
+      NEXT_PUBLIC_API_BASE_URL: "http://api:8080"
+      AUTH_MICROSOFT_ENTRA_ID_ID: "${AUTH_MICROSOFT_ENTRA_ID_ID}"
+      AUTH_MICROSOFT_ENTRA_ID_SECRET: "${AUTH_MICROSOFT_ENTRA_ID_SECRET}"
+      AUTH_MICROSOFT_ENTRA_ID_ISSUER: "${AUTH_MICROSOFT_ENTRA_ID_ISSUER}"
+      ENTRA_API_SCOPE: "${ENTRA_API_SCOPE}"
+      AUTH_SECRET: "${AUTH_SECRET}"
     ports:
       - "3000:3000"
     depends_on:

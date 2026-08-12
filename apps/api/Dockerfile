@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-COPY OrganizationalSingularity.sln ./
+COPY OrganizationalSingularity.slnx ./
 COPY src/OrganizationalSingularity.Api/OrganizationalSingularity.Api.csproj src/OrganizationalSingularity.Api/
 COPY src/OrganizationalSingularity.Domain/OrganizationalSingularity.Domain.csproj src/OrganizationalSingularity.Domain/
 COPY src/OrganizationalSingularity.Infrastructure/OrganizationalSingularity.Infrastructure.csproj src/OrganizationalSingularity.Infrastructure/
