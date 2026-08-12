@@ -35,6 +35,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<IntelligenceDebtEvidence> IntelligenceDebtEvidence => Set<IntelligenceDebtEvidence>();
     public DbSet<IntelligenceDebtDependency> IntelligenceDebtDependencies => Set<IntelligenceDebtDependency>();
     public DbSet<IntelligenceDebtCategoryMapping> IntelligenceDebtCategoryMappings => Set<IntelligenceDebtCategoryMapping>();
+    public DbSet<IntelligenceDebtSeverityMapping> IntelligenceDebtSeverityMappings => Set<IntelligenceDebtSeverityMapping>();
+    public DbSet<IntelligenceDebtDetectionProvenance> IntelligenceDebtDetectionProvenances => Set<IntelligenceDebtDetectionProvenance>();
 
     public DbSet<Initiative> Initiatives => Set<Initiative>();
     public DbSet<InitiativeMilestone> InitiativeMilestones => Set<InitiativeMilestone>();
@@ -222,7 +224,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<IntelligenceDebtCategoryMapping>(e =>
         {
-            e.HasIndex(x => new { x.FrameworkVersionId, x.DimensionId }).IsUnique();
+            // Category is part of the unique key (not just FrameworkVersionId + DimensionId)
+            // so a dimension can have zero, one, or multiple category mappings within one
+            // framework version -- this only prevents the same (dimension, category) pair
+            // being inserted twice. v1 still only ever has one row per dimension in
+            // practice; nothing about this index forces that, it's just what's seeded.
+            e.HasIndex(x => new { x.FrameworkVersionId, x.DimensionId, x.Category }).IsUnique();
             e.HasOne(x => x.FrameworkVersion)
                 .WithMany()
                 .HasForeignKey(x => x.FrameworkVersionId)
@@ -232,6 +239,46 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(x => x.DimensionId)
                 .OnDelete(DeleteBehavior.Restrict);
             e.OwnsOne(x => x.Provenance);
+        });
+
+        modelBuilder.Entity<IntelligenceDebtSeverityMapping>(e =>
+        {
+            e.HasIndex(x => new { x.FrameworkVersionId, x.MaturityBandId }).IsUnique();
+            e.HasOne(x => x.FrameworkVersion)
+                .WithMany()
+                .HasForeignKey(x => x.FrameworkVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.MaturityBand)
+                .WithMany()
+                .HasForeignKey(x => x.MaturityBandId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.OwnsOne(x => x.Provenance);
+        });
+
+        modelBuilder.Entity<IntelligenceDebtDetectionProvenance>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasIndex(x => x.FindingId).IsUnique();
+            e.HasOne(x => x.Finding)
+                .WithOne()
+                .HasForeignKey<IntelligenceDebtDetectionProvenance>(x => x.FindingId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Assessment)
+                .WithMany()
+                .HasForeignKey(x => x.AssessmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.FrameworkVersion)
+                .WithMany()
+                .HasForeignKey(x => x.FrameworkVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CategoryMapping)
+                .WithMany()
+                .HasForeignKey(x => x.CategoryMappingId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.SeverityMapping)
+                .WithMany()
+                .HasForeignKey(x => x.SeverityMappingId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<IntelligenceDebtFinding>(e =>

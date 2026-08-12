@@ -322,7 +322,8 @@ public static class AssessmentEndpoints
     }
 
     private static async Task<IResult> SubmitAsync(
-        Guid tenantId, Guid id, ClaimsPrincipal claims, UserProvisioningService provisioning, AppDbContext db, CancellationToken ct)
+        Guid tenantId, Guid id, ClaimsPrincipal claims, UserProvisioningService provisioning, AppDbContext db,
+        ILogger<Program> logger, CancellationToken ct)
     {
         var (membership, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
         if (error is not null) return error;
@@ -367,9 +368,9 @@ public static class AssessmentEndpoints
             .Where(b => b.FrameworkVersionId == assessment.FrameworkVersionId)
             .ToListAsync(ct);
 
-        var categoryByDimensionId = await db.IntelligenceDebtCategoryMappings
-            .Where(m => m.FrameworkVersionId == assessment.FrameworkVersionId)
-            .ToDictionaryAsync(m => m.DimensionId, m => m.Category, ct);
+        // The exact FrameworkVersion this assessment was created under -- never "the
+        // current" or "the latest" version. See IntelligenceDebtMethodologyReader.
+        var methodology = await IntelligenceDebtMethodologyReader.ReadAsync(db, assessment.FrameworkVersionId, ct);
 
         var result = new AssessmentResult { TenantId = tenantId, AssessmentId = id };
         db.AssessmentResults.Add(result);
@@ -420,20 +421,24 @@ public static class AssessmentEndpoints
             .ToDictionary(d => d.Id, d => d.Name);
         var capabilityScoreById = scoring.CapabilityScores.ToDictionary(c => c.CapabilityId, c => c.Score);
 
-        var dimensionCandidates = AssessmentDebtDetector.DetectFromDimensions(
+        var dimensionDetection = AssessmentDebtDetector.DetectFromDimensions(
             scoring.DimensionScores.Select(d =>
                 new AssessmentDebtDetector.DimensionCandidateInput(d.DimensionId, dimensionInfo[d.DimensionId], d.Score, dimensionBands[d.DimensionId])),
-            categoryByDimensionId);
-        var capabilityCandidates = AssessmentDebtDetector.DetectFromCapabilities(
+            methodology.CategoryRulesByDimensionId,
+            methodology.SeverityRulesByBandName);
+        var capabilityDetection = AssessmentDebtDetector.DetectFromCapabilities(
             scoring.CapabilityScores.Select(c =>
             {
                 var (name, dimensionId, dimensionName) = capabilityInfo[c.CapabilityId];
                 var band = AssessmentScoringEngine.DetermineBand(c.Score, bandTuples);
                 return new AssessmentDebtDetector.CapabilityCandidateInput(c.CapabilityId, name, dimensionId, dimensionName, c.Score, band);
             }),
-            categoryByDimensionId);
+            methodology.CategoryRulesByDimensionId,
+            methodology.SeverityRulesByBandName);
 
-        var candidates = dimensionCandidates.Concat(capabilityCandidates).ToList();
+        var candidates = dimensionDetection.Candidates.Concat(capabilityDetection.Candidates).ToList();
+        var skipped = dimensionDetection.Skipped.Concat(capabilityDetection.Skipped).ToList();
+
         if (candidates.Count > 0)
         {
             var nextCodeNumber = await db.IntelligenceDebtFindings.CountAsync(f => f.TenantId == tenantId, ct) + 1;
@@ -456,6 +461,26 @@ public static class AssessmentEndpoints
                     CreatedByUserId = membership!.UserId,
                 };
                 db.IntelligenceDebtFindings.Add(finding);
+
+                // Structured provenance -- reconstructable without parsing Description.
+                // Every value here is copied at detection time, not left to be recomputed,
+                // so a later change to the mapping/threshold/band data never changes what
+                // this specific finding is explained by.
+                db.IntelligenceDebtDetectionProvenances.Add(new IntelligenceDebtDetectionProvenance
+                {
+                    TenantId = tenantId,
+                    Finding = finding,
+                    AssessmentId = id,
+                    FrameworkVersionId = assessment.FrameworkVersionId,
+                    CategoryMappingId = candidate.CategoryMappingId,
+                    SeverityMappingId = candidate.SeverityMappingId,
+                    DimensionId = candidate.DimensionId,
+                    CapabilityId = candidate.CapabilityId,
+                    ObservedScore = candidate.ObservedScore,
+                    MaturityBand = candidate.MaturityBand,
+                    ThresholdUsed = candidate.ThresholdUsed,
+                });
+
                 db.AuditEvents.Add(new AuditEvent
                 {
                     TenantId = tenantId,
@@ -466,6 +491,35 @@ public static class AssessmentEndpoints
                     PayloadJson = JsonSerializer.Serialize(new { finding.Code, finding.Title, source = "Assessment", assessmentId = id }),
                 });
             }
+        }
+
+        // A missing category or severity mapping is a configuration gap, not something to
+        // guess at -- no finding is created for it, but it must not be silent either.
+        foreach (var skip in skipped)
+        {
+            db.AuditEvents.Add(new AuditEvent
+            {
+                TenantId = tenantId,
+                ActorUserId = membership!.UserId,
+                EventType = "IntelligenceDebt.DetectionSkipped",
+                EntityType = "Assessment",
+                EntityId = id,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    reason = skip.Reason.ToString(),
+                    frameworkVersionId = assessment.FrameworkVersionId,
+                    dimensionId = skip.DimensionId,
+                    capabilityId = skip.CapabilityId,
+                    observedScore = skip.ObservedScore,
+                    maturityBand = skip.MaturityBand,
+                }),
+            });
+        }
+        if (skipped.Count > 0)
+        {
+            logger.LogWarning(
+                "Skipped {Count} Intelligence Debt candidate(s) for assessment {AssessmentId} (framework version {FrameworkVersionId}): missing category/severity configuration.",
+                skipped.Count, id, assessment.FrameworkVersionId);
         }
 
         assessment.Status = AssessmentStatus.Completed;

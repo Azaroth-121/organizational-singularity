@@ -7,15 +7,23 @@ namespace OrganizationalSingularity.Infrastructure.IntelligenceDebt;
 /// (OS-ASSESS-OIQ-001 spec's own deferred note: "detection thresholds... become
 /// candidate-detection logic that runs against AssessmentResult once this exists"). This
 /// is NOT the AI/Prometheus detection explicitly deferred elsewhere -- it is a plain score
-/// comparison against framework-owned band data, with no inference involved.
+/// comparison against framework-owned data, with no inference involved.
 ///
 /// Every candidate is created with Status = Detected and DetectionSource = Assessment;
 /// IntelligenceDebtStateMachine still requires a human to move it through
-/// EvidenceReviewed -> ApprovedFinding before it counts as an authoritative finding. A
-/// wrong auto-assigned Category is a review-time correction, not a safety hole.
+/// EvidenceReviewed -> ApprovedFinding before it counts as an authoritative finding. This
+/// class makes no methodology decisions of its own: category and severity both come from
+/// framework-owned mapping data (IntelligenceDebtCategoryMapping /
+/// IntelligenceDebtSeverityMapping, read via IntelligenceDebtMethodologyReader), and a
+/// dimension/capability with no matching mapping produces no candidate at all rather than
+/// a silently guessed one -- see SkippedDetection.
 /// </summary>
 public static class AssessmentDebtDetector
 {
+    // Still an application-defined constant, deliberately not moved to framework data --
+    // out of scope for this hardening pass (has prior specification support and the task
+    // that introduced it was explicit that changing it is a methodology decision, not a
+    // technical one).
     public const decimal ScoreThreshold = 2.0m;
 
     public record DimensionCandidateInput(Guid DimensionId, string DimensionName, decimal? Score, string? MaturityBand);
@@ -24,49 +32,113 @@ public static class AssessmentDebtDetector
         Guid CapabilityId, string CapabilityName, Guid DimensionId, string DimensionName, decimal? Score, string? MaturityBand);
 
     public record CandidateFinding(
-        IntelligenceDebtCategory Category, IntelligenceDebtSeverity Severity, string Title, string Description,
-        Guid? CapabilityId, Guid? DimensionId);
+        Guid CategoryMappingId, IntelligenceDebtCategory Category,
+        Guid SeverityMappingId, IntelligenceDebtSeverity Severity,
+        string Title, string Description,
+        Guid? CapabilityId, Guid? DimensionId,
+        decimal ObservedScore, string MaturityBand, decimal ThresholdUsed);
 
-    // The threshold itself (<=2.0) is the trigger; severity distinguishes how far below it
-    // using the framework's own band data rather than a second invented cutoff.
-    private static IntelligenceDebtSeverity SeverityFor(string? maturityBand) =>
-        maturityBand == "Fragmented" ? IntelligenceDebtSeverity.High : IntelligenceDebtSeverity.Moderate;
+    public enum DetectionSkipReason
+    {
+        /// <summary>No IntelligenceDebtCategoryMapping row exists for this dimension in
+        /// this framework version -- a configuration gap, not "assign a default category."</summary>
+        NoCategoryMapping,
 
-    /// <summary>
-    /// categoryByDimensionId comes from IntelligenceDebtCategoryMapping (framework data, not
-    /// a hardcoded table -- see FrameworkSeeder). Falls back to InconsistentProcesses only
-    /// for a dimension somehow missing a mapping row, which should not happen against a
-    /// correctly seeded framework version.
-    /// </summary>
-    public static List<CandidateFinding> DetectFromDimensions(
+        /// <summary>The observed band has no IntelligenceDebtSeverityMapping row in this
+        /// framework version (or no band could be determined at all).</summary>
+        NoSeverityMapping,
+    }
+
+    public record SkippedDetection(
+        Guid? DimensionId, Guid? CapabilityId, DetectionSkipReason Reason, decimal ObservedScore, string? MaturityBand);
+
+    public record DetectionResult(IReadOnlyList<CandidateFinding> Candidates, IReadOnlyList<SkippedDetection> Skipped);
+
+    public static DetectionResult DetectFromDimensions(
         IEnumerable<DimensionCandidateInput> dimensions,
-        IReadOnlyDictionary<Guid, IntelligenceDebtCategory> categoryByDimensionId) =>
-        dimensions
-            .Where(d => d.Score is decimal score && score <= ScoreThreshold)
-            .Select(d => new CandidateFinding(
-                categoryByDimensionId.GetValueOrDefault(d.DimensionId, IntelligenceDebtCategory.InconsistentProcesses),
-                SeverityFor(d.MaturityBand),
-                $"{d.DimensionName} scored {d.Score:0.00} in the OIQ assessment",
-                $"System-detected candidate: the {d.DimensionName} dimension scored {d.Score:0.00} " +
-                $"(band: {d.MaturityBand}), at or below the {ScoreThreshold:0.00} review threshold. " +
-                "Not an authoritative finding until a reviewer approves it.",
-                CapabilityId: null,
-                DimensionId: d.DimensionId))
-            .ToList();
+        ILookup<Guid, IntelligenceDebtMethodologyReader.CategoryRule> categoryRulesByDimensionId,
+        IReadOnlyDictionary<string, IntelligenceDebtMethodologyReader.SeverityRule> severityRulesByBandName)
+    {
+        var candidates = new List<CandidateFinding>();
+        var skipped = new List<SkippedDetection>();
 
-    public static List<CandidateFinding> DetectFromCapabilities(
+        foreach (var d in dimensions)
+        {
+            if (d.Score is not decimal score || score > ScoreThreshold) continue;
+
+            var rules = categoryRulesByDimensionId[d.DimensionId].ToList();
+            if (rules.Count == 0)
+            {
+                skipped.Add(new SkippedDetection(d.DimensionId, null, DetectionSkipReason.NoCategoryMapping, score, d.MaturityBand));
+                continue;
+            }
+            if (d.MaturityBand is null || !severityRulesByBandName.TryGetValue(d.MaturityBand, out var severityRule))
+            {
+                skipped.Add(new SkippedDetection(d.DimensionId, null, DetectionSkipReason.NoSeverityMapping, score, d.MaturityBand));
+                continue;
+            }
+
+            foreach (var rule in rules)
+            {
+                candidates.Add(new CandidateFinding(
+                    rule.MappingId, rule.Category,
+                    severityRule.MappingId, severityRule.Severity,
+                    $"{d.DimensionName} scored {score:0.00} in the OIQ assessment",
+                    $"System-detected candidate: the {d.DimensionName} dimension scored {score:0.00} " +
+                    $"(band: {d.MaturityBand}), at or below the {ScoreThreshold:0.00} review threshold. " +
+                    "Not an authoritative finding until a reviewer approves it.",
+                    CapabilityId: null,
+                    DimensionId: d.DimensionId,
+                    ObservedScore: score,
+                    MaturityBand: d.MaturityBand,
+                    ThresholdUsed: ScoreThreshold));
+            }
+        }
+
+        return new DetectionResult(candidates, skipped);
+    }
+
+    public static DetectionResult DetectFromCapabilities(
         IEnumerable<CapabilityCandidateInput> capabilities,
-        IReadOnlyDictionary<Guid, IntelligenceDebtCategory> categoryByDimensionId) =>
-        capabilities
-            .Where(c => c.Score is decimal score && score <= ScoreThreshold)
-            .Select(c => new CandidateFinding(
-                categoryByDimensionId.GetValueOrDefault(c.DimensionId, IntelligenceDebtCategory.InconsistentProcesses),
-                SeverityFor(c.MaturityBand),
-                $"{c.CapabilityName} scored {c.Score:0.00} in the OIQ assessment",
-                $"System-detected candidate: the {c.CapabilityName} capability scored {c.Score:0.00} " +
-                $"(band: {c.MaturityBand}), at or below the {ScoreThreshold:0.00} review threshold. " +
-                "Not an authoritative finding until a reviewer approves it.",
-                CapabilityId: c.CapabilityId,
-                DimensionId: c.DimensionId))
-            .ToList();
+        ILookup<Guid, IntelligenceDebtMethodologyReader.CategoryRule> categoryRulesByDimensionId,
+        IReadOnlyDictionary<string, IntelligenceDebtMethodologyReader.SeverityRule> severityRulesByBandName)
+    {
+        var candidates = new List<CandidateFinding>();
+        var skipped = new List<SkippedDetection>();
+
+        foreach (var c in capabilities)
+        {
+            if (c.Score is not decimal score || score > ScoreThreshold) continue;
+
+            var rules = categoryRulesByDimensionId[c.DimensionId].ToList();
+            if (rules.Count == 0)
+            {
+                skipped.Add(new SkippedDetection(c.DimensionId, c.CapabilityId, DetectionSkipReason.NoCategoryMapping, score, c.MaturityBand));
+                continue;
+            }
+            if (c.MaturityBand is null || !severityRulesByBandName.TryGetValue(c.MaturityBand, out var severityRule))
+            {
+                skipped.Add(new SkippedDetection(c.DimensionId, c.CapabilityId, DetectionSkipReason.NoSeverityMapping, score, c.MaturityBand));
+                continue;
+            }
+
+            foreach (var rule in rules)
+            {
+                candidates.Add(new CandidateFinding(
+                    rule.MappingId, rule.Category,
+                    severityRule.MappingId, severityRule.Severity,
+                    $"{c.CapabilityName} scored {score:0.00} in the OIQ assessment",
+                    $"System-detected candidate: the {c.CapabilityName} capability scored {score:0.00} " +
+                    $"(band: {c.MaturityBand}), at or below the {ScoreThreshold:0.00} review threshold. " +
+                    "Not an authoritative finding until a reviewer approves it.",
+                    CapabilityId: c.CapabilityId,
+                    DimensionId: c.DimensionId,
+                    ObservedScore: score,
+                    MaturityBand: c.MaturityBand,
+                    ThresholdUsed: ScoreThreshold));
+            }
+        }
+
+        return new DetectionResult(candidates, skipped);
+    }
 }
