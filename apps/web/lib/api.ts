@@ -367,3 +367,159 @@ export function removeIntelligenceDebtDependency(
     method: "DELETE",
   });
 }
+
+export interface ApiAssessmentSummary {
+  id: string;
+  organizationId: string;
+  organizationName: string | null;
+  frameworkVersionId: string;
+  frameworkVersionLabel: string | null;
+  status: string;
+  supersedesAssessmentId: string | null;
+  createdAtUtc: string;
+  submittedAtUtc: string | null;
+  completedAtUtc: string | null;
+  answeredCount: number;
+  totalCount: number;
+}
+
+export interface ApiMaturityLevel {
+  id: string;
+  level: number;
+  name: string;
+  description: string | null;
+}
+
+export interface ApiAssessmentResponse {
+  answerState: string;
+  selectedMaturityLevelId: string | null;
+  respondentComment: string | null;
+  confidence: string | null;
+  evidenceReferences: string[] | null;
+}
+
+export interface ApiAssessmentQuestion {
+  id: string;
+  code: string;
+  text: string;
+  response: ApiAssessmentResponse | null;
+}
+
+export interface ApiAssessmentCapability {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  evidenceGuidance: string | null;
+  questions: ApiAssessmentQuestion[];
+}
+
+export interface ApiAssessmentDimension {
+  id: string;
+  code: string;
+  name: string;
+  fundamentalQuestion: string | null;
+  capabilities: ApiAssessmentCapability[];
+}
+
+export interface ApiAssessmentDetail {
+  id: string;
+  organizationId: string;
+  organizationName: string | null;
+  frameworkVersionLabel: string;
+  status: string;
+  supersedesAssessmentId: string | null;
+  createdAtUtc: string;
+  submittedAtUtc: string | null;
+  completedAtUtc: string | null;
+  maturityLevels: ApiMaturityLevel[];
+  dimensions: ApiAssessmentDimension[];
+}
+
+export interface ApiDimensionScore {
+  dimensionId: string;
+  code: string;
+  name: string;
+  score: number | null;
+  maturityBand: string | null;
+}
+
+export interface ApiCapabilityScore {
+  capabilityId: string;
+  code: string;
+  name: string;
+  dimensionId: string;
+  score: number | null;
+  answeredQuestionCount: number;
+}
+
+export interface ApiAssessmentResult {
+  assessmentId: string;
+  calculatedAtUtc: string;
+  compositeAverage: number | null;
+  dimensionScores: ApiDimensionScore[];
+  capabilityScores: ApiCapabilityScore[];
+}
+
+export function listAssessments(
+  accessToken: string,
+  tenantId: string
+): Promise<ApiResult<ApiAssessmentSummary[]>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments`, accessToken);
+}
+
+export function getAssessment(
+  accessToken: string,
+  tenantId: string,
+  id: string
+): Promise<ApiResult<ApiAssessmentDetail>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${id}`, accessToken);
+}
+
+export function createAssessment(
+  accessToken: string,
+  tenantId: string,
+  body: { organizationId: string; supersedesAssessmentId?: string }
+): Promise<ApiResult<ApiAssessmentSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function saveAssessmentResponse(
+  accessToken: string,
+  tenantId: string,
+  assessmentId: string,
+  questionId: string,
+  body: {
+    answerState: string;
+    selectedMaturityLevelId?: string | null;
+    respondentComment?: string;
+    confidence?: string;
+    evidenceReferences?: string[];
+  }
+): Promise<ApiResult<ApiAssessmentResponse>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/responses/${questionId}`, accessToken, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function submitAssessment(
+  accessToken: string,
+  tenantId: string,
+  assessmentId: string
+): Promise<ApiResult<{ assessmentId: string; status: string }>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/submit`, accessToken, {
+    method: "POST",
+  });
+}
+
+export function getAssessmentResult(
+  accessToken: string,
+  tenantId: string,
+  assessmentId: string
+): Promise<ApiResult<ApiAssessmentResult>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/result`, accessToken);
+}

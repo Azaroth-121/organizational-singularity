@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, Building2, ChevronsUpDown, FlaskConical, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { AlertTriangle, Building2, ChevronsUpDown, ClipboardList, FlaskConical, LayoutDashboard, LogOut, Users } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +32,7 @@ const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Organizations", url: "/organizations", icon: Building2 },
   { title: "Members", url: "/members", icon: Users },
+  { title: "Assessments", url: "/assessments", icon: ClipboardList },
   { title: "Intelligence Debt", url: "/intelligence-debt", icon: AlertTriangle },
 ];
 
