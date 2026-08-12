@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OrganizationalSingularity.Domain.Assessments;
 using OrganizationalSingularity.Domain.Framework;
+using OrganizationalSingularity.Domain.IntelligenceDebt;
 
 namespace OrganizationalSingularity.Infrastructure.Persistence;
 
@@ -25,12 +26,37 @@ public static class FrameworkSeeder
         string Code, string Name, string? Description, string? EvidenceGuidance, QuestionSeed[] Questions);
 
     private sealed record DimensionSeed(
-        string Code, string Name, string FundamentalQuestion, CapabilitySeed[] Capabilities);
+        string Code, string Name, string FundamentalQuestion, IntelligenceDebtCategory DebtCategory, CapabilitySeed[] Capabilities);
+
+    /// <summary>Backfill-only source of truth for environments whose FrameworkVersion was
+    /// seeded before IntelligenceDebtCategoryMappings existed (see
+    /// EnsureCategoryMappingsBackfilledAsync). A fresh environment never uses this -- it
+    /// gets the same values via DimensionSeed.DebtCategory in SeedDimensions below. Keep
+    /// both in sync if the mapping ever changes.</summary>
+    private static readonly Dictionary<string, IntelligenceDebtCategory> DimensionDebtCategoriesByName = new()
+    {
+        ["Sensing"] = IntelligenceDebtCategory.ConflictingDefinitionsAndData,
+        ["Understanding"] = IntelligenceDebtCategory.FragmentedKnowledge,
+        ["Decision-Making"] = IntelligenceDebtCategory.UndocumentedDecisions,
+        ["Coordinated Action"] = IntelligenceDebtCategory.DuplicatedWork,
+        ["Learning"] = IntelligenceDebtCategory.InconsistentProcesses,
+        ["Knowledge Accessibility"] = IntelligenceDebtCategory.InaccessibleExpertise,
+        ["Process Observability"] = IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
+        ["System Interoperability"] = IntelligenceDebtCategory.DisconnectedSystems,
+        ["AI Governance"] = IntelligenceDebtCategory.UngovernedAiAndAutomation,
+        ["Security & Trust"] = IntelligenceDebtCategory.ConflictingDefinitionsAndData,
+        ["Human Accountability"] = IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
+    };
 
     public static async Task EnsureFrameworkV1SeededAsync(AppDbContext db, CancellationToken ct = default)
     {
         if (await db.FrameworkVersions.AnyAsync(ct))
         {
+            // Framework content is immutable once published, but IntelligenceDebtCategoryMappings
+            // is new -- an environment that already seeded Framework Version 1.0.0 before this
+            // table existed needs it backfilled, without touching the immutable dimensions/
+            // capabilities/questions it already has.
+            await EnsureCategoryMappingsBackfilledAsync(db, ct);
             return;
         }
 
@@ -46,6 +72,34 @@ public static class FrameworkSeeder
         SeedMaturityLevels(db, framework.Id);
         SeedMaturityBands(db, framework.Id);
         SeedDimensions(db, framework.Id);
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static async Task EnsureCategoryMappingsBackfilledAsync(AppDbContext db, CancellationToken ct)
+    {
+        if (await db.IntelligenceDebtCategoryMappings.AnyAsync(ct))
+        {
+            return;
+        }
+
+        var frameworkVersionId = await db.FrameworkVersions.Select(f => f.Id).FirstAsync(ct);
+        var dimensions = await db.Dimensions.Where(d => d.FrameworkVersionId == frameworkVersionId).ToListAsync(ct);
+
+        foreach (var dimension in dimensions)
+        {
+            if (!DimensionDebtCategoriesByName.TryGetValue(dimension.Name, out var category))
+            {
+                continue;
+            }
+            db.IntelligenceDebtCategoryMappings.Add(new IntelligenceDebtCategoryMapping
+            {
+                FrameworkVersionId = frameworkVersionId,
+                DimensionId = dimension.Id,
+                Category = category,
+                Provenance = MakeProvenance("Intelligence Debt Register v1.0 (dimension-to-category mapping, not a spec citation)"),
+            });
+        }
 
         await db.SaveChangesAsync(ct);
     }
@@ -111,7 +165,7 @@ public static class FrameworkSeeder
     {
         DimensionSeed[] dimensions =
         [
-            new("D01", "Sensing", "Can the organization detect meaningful change?",
+            new("D01", "Sensing", "Can the organization detect meaningful change?", IntelligenceDebtCategory.ConflictingDefinitionsAndData,
             [
                 new("C01.1", "Environmental Sensing",
                     "Ability to identify material changes in customers, markets, operations, technology, risk and the external environment.",
@@ -126,7 +180,7 @@ public static class FrameworkSeeder
                         new("Q004", "How consistently are important operational exceptions, bottlenecks and emerging problems detected before they become larger problems?"),
                     ]),
             ]),
-            new("D02", "Understanding", "Can it turn information into shared context?",
+            new("D02", "Understanding", "Can it turn information into shared context?", IntelligenceDebtCategory.FragmentedKnowledge,
             [
                 new("C02.1", "Shared Context", null, null,
                     [
@@ -141,7 +195,7 @@ public static class FrameworkSeeder
                         new("Q008", "When sources disagree, how clearly can the organization determine which information is authoritative and resolve the conflict?"),
                     ]),
             ]),
-            new("D03", "Decision-Making", "Can it make sound, traceable decisions?",
+            new("D03", "Decision-Making", "Can it make sound, traceable decisions?", IntelligenceDebtCategory.UndocumentedDecisions,
             [
                 new("C03.1", "Decision Quality & Authority", null, null,
                     [
@@ -156,7 +210,7 @@ public static class FrameworkSeeder
                         new("Q012", "How consistently are expected outcomes and actual results linked back to the decisions that produced them?"),
                     ]),
             ]),
-            new("D04", "Coordinated Action", "Can decisions become coordinated execution?",
+            new("D04", "Coordinated Action", "Can decisions become coordinated execution?", IntelligenceDebtCategory.DuplicatedWork,
             [
                 new("C04.1", "Decision-to-Execution Coordination", null, null,
                     [
@@ -171,7 +225,7 @@ public static class FrameworkSeeder
                         new("Q016", "When priorities or conditions change, how quickly can affected teams adjust without creating conflicting actions?"),
                     ]),
             ]),
-            new("D05", "Learning", "Do outcomes improve future behavior?",
+            new("D05", "Learning", "Do outcomes improve future behavior?", IntelligenceDebtCategory.InconsistentProcesses,
             [
                 new("C05.1", "Outcome Learning", null, null,
                     [
@@ -186,7 +240,7 @@ public static class FrameworkSeeder
                         new("Q020", "How consistently can the organization demonstrate that prior experience changes future organizational behavior?"),
                     ]),
             ]),
-            new("D06", "Knowledge Accessibility", "Can people and AI find authoritative organizational knowledge?",
+            new("D06", "Knowledge Accessibility", "Can people and AI find authoritative organizational knowledge?", IntelligenceDebtCategory.InaccessibleExpertise,
             [
                 new("C06.1", "Organizational Memory",
                     "Organizational Memory exists precisely because organizations otherwise forget as people leave, projects end and knowledge fragments. The Canon emphasizes preservation of explicit, tacit, institutional and enterprise knowledge.",
@@ -201,7 +255,7 @@ public static class FrameworkSeeder
                         new("Q024", "How effectively can authorized people and systems retrieve knowledge in context rather than depending on personal memory or informal networks?"),
                     ]),
             ]),
-            new("D07", "Process Observability", "Can the organization understand how work actually flows?",
+            new("D07", "Process Observability", "Can the organization understand how work actually flows?", IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
             [
                 new("C07.1", "Process Visibility", null, null,
                     [
@@ -214,7 +268,7 @@ public static class FrameworkSeeder
                         new("Q028", "How effectively does process evidence lead to changes when bottlenecks, repeated work or failures are identified?"),
                     ]),
             ]),
-            new("D08", "System Interoperability", "Can systems and data contribute to coordinated intelligence?",
+            new("D08", "System Interoperability", "Can systems and data contribute to coordinated intelligence?", IntelligenceDebtCategory.DisconnectedSystems,
             [
                 new("C08.1", "Information Connectivity", null, null,
                     [
@@ -229,7 +283,7 @@ public static class FrameworkSeeder
                         new("Q032", "How effectively can workflows span multiple systems without losing context, ownership or traceability?"),
                     ]),
             ]),
-            new("D09", "AI Governance", "Is AI deployed under defined authority, controls and accountability?",
+            new("D09", "AI Governance", "Is AI deployed under defined authority, controls and accountability?", IntelligenceDebtCategory.UngovernedAiAndAutomation,
             [
                 new("C09.1", "Governed AI Use", null, null,
                     [
@@ -244,7 +298,7 @@ public static class FrameworkSeeder
                         new("Q036", "For consequential AI-supported actions, how consistently are approval, escalation and override requirements defined?"),
                     ]),
             ]),
-            new("D10", "Security & Trust", "Can organizational intelligence operate securely and reliably?",
+            new("D10", "Security & Trust", "Can organizational intelligence operate securely and reliably?", IntelligenceDebtCategory.ConflictingDefinitionsAndData,
             [
                 new("C10.1", "Identity & Information Protection", null, null,
                     [
@@ -257,7 +311,7 @@ public static class FrameworkSeeder
                         new("Q040", "How consistently can leaders determine whether important information and AI-supported conclusions are trustworthy, current and appropriately sourced?"),
                     ]),
             ]),
-            new("D11", "Human Accountability", "Are people meaningfully responsible for consequential decisions and actions?",
+            new("D11", "Human Accountability", "Are people meaningfully responsible for consequential decisions and actions?", IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
             [
                 new("C11.1", "Responsible Human Oversight", null, null,
                     [
@@ -288,6 +342,14 @@ public static class FrameworkSeeder
                 Provenance = MakeProvenance("§1"),
             };
             db.Dimensions.Add(dimension);
+
+            db.IntelligenceDebtCategoryMappings.Add(new IntelligenceDebtCategoryMapping
+            {
+                FrameworkVersionId = frameworkVersionId,
+                DimensionId = dimension.Id,
+                Category = dimensionSeed.DebtCategory,
+                Provenance = MakeProvenance("Intelligence Debt Register v1.0 (dimension-to-category mapping, not a spec citation)"),
+            });
 
             var capabilitySort = 0;
             foreach (var capabilitySeed in dimensionSeed.Capabilities)

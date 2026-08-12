@@ -33,6 +33,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<IntelligenceDebtFinding> IntelligenceDebtFindings => Set<IntelligenceDebtFinding>();
     public DbSet<IntelligenceDebtEvidence> IntelligenceDebtEvidence => Set<IntelligenceDebtEvidence>();
     public DbSet<IntelligenceDebtDependency> IntelligenceDebtDependencies => Set<IntelligenceDebtDependency>();
+    public DbSet<IntelligenceDebtCategoryMapping> IntelligenceDebtCategoryMappings => Set<IntelligenceDebtCategoryMapping>();
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -212,6 +213,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.DimensionId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<IntelligenceDebtCategoryMapping>(e =>
+        {
+            e.HasIndex(x => new { x.FrameworkVersionId, x.DimensionId }).IsUnique();
+            e.HasOne(x => x.FrameworkVersion)
+                .WithMany()
+                .HasForeignKey(x => x.FrameworkVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Dimension)
+                .WithMany()
+                .HasForeignKey(x => x.DimensionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.OwnsOne(x => x.Provenance);
         });
 
         modelBuilder.Entity<IntelligenceDebtFinding>(e =>

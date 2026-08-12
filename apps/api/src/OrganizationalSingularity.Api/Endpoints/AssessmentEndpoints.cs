@@ -367,6 +367,10 @@ public static class AssessmentEndpoints
             .Where(b => b.FrameworkVersionId == assessment.FrameworkVersionId)
             .ToListAsync(ct);
 
+        var categoryByDimensionId = await db.IntelligenceDebtCategoryMappings
+            .Where(m => m.FrameworkVersionId == assessment.FrameworkVersionId)
+            .ToDictionaryAsync(m => m.DimensionId, m => m.Category, ct);
+
         var result = new AssessmentResult { TenantId = tenantId, AssessmentId = id };
         db.AssessmentResults.Add(result);
 
@@ -416,14 +420,18 @@ public static class AssessmentEndpoints
             .ToDictionary(d => d.Id, d => d.Name);
         var capabilityScoreById = scoring.CapabilityScores.ToDictionary(c => c.CapabilityId, c => c.Score);
 
-        var dimensionCandidates = AssessmentDebtDetector.DetectFromDimensions(scoring.DimensionScores.Select(d =>
-            new AssessmentDebtDetector.DimensionCandidateInput(d.DimensionId, dimensionInfo[d.DimensionId], d.Score, dimensionBands[d.DimensionId])));
-        var capabilityCandidates = AssessmentDebtDetector.DetectFromCapabilities(scoring.CapabilityScores.Select(c =>
-        {
-            var (name, dimensionId, dimensionName) = capabilityInfo[c.CapabilityId];
-            var band = AssessmentScoringEngine.DetermineBand(c.Score, bandTuples);
-            return new AssessmentDebtDetector.CapabilityCandidateInput(c.CapabilityId, name, dimensionId, dimensionName, c.Score, band);
-        }));
+        var dimensionCandidates = AssessmentDebtDetector.DetectFromDimensions(
+            scoring.DimensionScores.Select(d =>
+                new AssessmentDebtDetector.DimensionCandidateInput(d.DimensionId, dimensionInfo[d.DimensionId], d.Score, dimensionBands[d.DimensionId])),
+            categoryByDimensionId);
+        var capabilityCandidates = AssessmentDebtDetector.DetectFromCapabilities(
+            scoring.CapabilityScores.Select(c =>
+            {
+                var (name, dimensionId, dimensionName) = capabilityInfo[c.CapabilityId];
+                var band = AssessmentScoringEngine.DetermineBand(c.Score, bandTuples);
+                return new AssessmentDebtDetector.CapabilityCandidateInput(c.CapabilityId, name, dimensionId, dimensionName, c.Score, band);
+            }),
+            categoryByDimensionId);
 
         var candidates = dimensionCandidates.Concat(capabilityCandidates).ToList();
         if (candidates.Count > 0)

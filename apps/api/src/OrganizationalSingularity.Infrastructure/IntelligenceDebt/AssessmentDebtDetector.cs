@@ -27,41 +27,24 @@ public static class AssessmentDebtDetector
         IntelligenceDebtCategory Category, IntelligenceDebtSeverity Severity, string Title, string Description,
         Guid? CapabilityId, Guid? DimensionId);
 
-    /// <summary>
-    /// Best-effort mapping from the 11 OIQ dimensions to the 9 Operationalized debt
-    /// categories -- not a 1:1 taxonomy (11 > 9 by construction), and not sourced from a
-    /// spec citation. Five pairs are direct name matches; the rest are inferred. Flagged as
-    /// a placeholder: a reviewer can always correct Category before approving a candidate,
-    /// which is the actual safety net here, not this table.
-    /// </summary>
-    private static readonly Dictionary<string, IntelligenceDebtCategory> CategoryByDimensionName = new()
-    {
-        ["Sensing"] = IntelligenceDebtCategory.ConflictingDefinitionsAndData,
-        ["Understanding"] = IntelligenceDebtCategory.FragmentedKnowledge,
-        ["Decision-Making"] = IntelligenceDebtCategory.UndocumentedDecisions,
-        ["Coordinated Action"] = IntelligenceDebtCategory.DuplicatedWork,
-        ["Learning"] = IntelligenceDebtCategory.InconsistentProcesses,
-        ["Knowledge Accessibility"] = IntelligenceDebtCategory.InaccessibleExpertise,
-        ["Process Observability"] = IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
-        ["System Interoperability"] = IntelligenceDebtCategory.DisconnectedSystems,
-        ["AI Governance"] = IntelligenceDebtCategory.UngovernedAiAndAutomation,
-        ["Security & Trust"] = IntelligenceDebtCategory.ConflictingDefinitionsAndData,
-        ["Human Accountability"] = IntelligenceDebtCategory.UnownedOrUnobservableProcesses,
-    };
-
-    private static IntelligenceDebtCategory CategoryFor(string dimensionName) =>
-        CategoryByDimensionName.GetValueOrDefault(dimensionName, IntelligenceDebtCategory.InconsistentProcesses);
-
     // The threshold itself (<=2.0) is the trigger; severity distinguishes how far below it
     // using the framework's own band data rather than a second invented cutoff.
     private static IntelligenceDebtSeverity SeverityFor(string? maturityBand) =>
         maturityBand == "Fragmented" ? IntelligenceDebtSeverity.High : IntelligenceDebtSeverity.Moderate;
 
-    public static List<CandidateFinding> DetectFromDimensions(IEnumerable<DimensionCandidateInput> dimensions) =>
+    /// <summary>
+    /// categoryByDimensionId comes from IntelligenceDebtCategoryMapping (framework data, not
+    /// a hardcoded table -- see FrameworkSeeder). Falls back to InconsistentProcesses only
+    /// for a dimension somehow missing a mapping row, which should not happen against a
+    /// correctly seeded framework version.
+    /// </summary>
+    public static List<CandidateFinding> DetectFromDimensions(
+        IEnumerable<DimensionCandidateInput> dimensions,
+        IReadOnlyDictionary<Guid, IntelligenceDebtCategory> categoryByDimensionId) =>
         dimensions
             .Where(d => d.Score is decimal score && score <= ScoreThreshold)
             .Select(d => new CandidateFinding(
-                CategoryFor(d.DimensionName),
+                categoryByDimensionId.GetValueOrDefault(d.DimensionId, IntelligenceDebtCategory.InconsistentProcesses),
                 SeverityFor(d.MaturityBand),
                 $"{d.DimensionName} scored {d.Score:0.00} in the OIQ assessment",
                 $"System-detected candidate: the {d.DimensionName} dimension scored {d.Score:0.00} " +
@@ -71,11 +54,13 @@ public static class AssessmentDebtDetector
                 DimensionId: d.DimensionId))
             .ToList();
 
-    public static List<CandidateFinding> DetectFromCapabilities(IEnumerable<CapabilityCandidateInput> capabilities) =>
+    public static List<CandidateFinding> DetectFromCapabilities(
+        IEnumerable<CapabilityCandidateInput> capabilities,
+        IReadOnlyDictionary<Guid, IntelligenceDebtCategory> categoryByDimensionId) =>
         capabilities
             .Where(c => c.Score is decimal score && score <= ScoreThreshold)
             .Select(c => new CandidateFinding(
-                CategoryFor(c.DimensionName),
+                categoryByDimensionId.GetValueOrDefault(c.DimensionId, IntelligenceDebtCategory.InconsistentProcesses),
                 SeverityFor(c.MaturityBand),
                 $"{c.CapabilityName} scored {c.Score:0.00} in the OIQ assessment",
                 $"System-detected candidate: the {c.CapabilityName} capability scored {c.Score:0.00} " +
