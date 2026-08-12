@@ -39,17 +39,25 @@ public class AppDbContextTests
         var tenant = new Tenant { Name = "SoverAIgn Solutions", Slug = "soveraign" };
         var organization = new Organization { TenantId = tenant.Id, Name = "SoverAIgn (internal)" };
 
-        var frameworkVersion = new FrameworkVersion { Name = "OIQ Core", Version = "1.0", IsPublished = true };
+        var frameworkVersion = new FrameworkVersion { Name = "OIQ Core", Version = "1.0.0", IsPublished = true };
+        var dimension = new Dimension
+        {
+            FrameworkVersionId = frameworkVersion.Id,
+            Code = "D03",
+            Name = "Decision-Making",
+        };
         var capability = new Capability
         {
             FrameworkVersionId = frameworkVersion.Id,
+            DimensionId = dimension.Id,
+            Code = "C03.2",
             Name = "Decision Traceability",
-            Dimension = OiqDimension.Decisions
         };
-        var maturityLevel = new MaturityLevel { FrameworkVersionId = frameworkVersion.Id, Level = 1, Name = "Ad hoc" };
+        var maturityLevel = new MaturityLevel { FrameworkVersionId = frameworkVersion.Id, Level = 1, Name = "Fragmented" };
         var question = new AssessmentQuestion
         {
             CapabilityId = capability.Id,
+            Code = "Q011",
             Text = "Can a material decision be traced back to the evidence that informed it?"
         };
 
@@ -65,8 +73,9 @@ public class AppDbContextTests
             TenantId = tenant.Id,
             AssessmentId = assessment.Id,
             QuestionId = question.Id,
+            AnswerState = ResponseAnswerState.Answered,
             SelectedMaturityLevelId = maturityLevel.Id,
-            Notes = "No documented decision log yet."
+            RespondentComment = "No documented decision log yet."
         };
 
         var auditEvent = new AuditEvent
@@ -77,7 +86,7 @@ public class AppDbContextTests
             EntityId = response.Id
         };
 
-        context.AddRange(tenant, organization, frameworkVersion, capability, maturityLevel, question,
+        context.AddRange(tenant, organization, frameworkVersion, dimension, capability, maturityLevel, question,
             assessment, response, auditEvent);
         await context.SaveChangesAsync();
 
@@ -91,6 +100,6 @@ public class AppDbContextTests
 
         Assert.Equal(tenant.Id, reloadedResponse.TenantId);
         Assert.Equal(AssessmentStatus.InProgress, reloadedResponse.Assessment!.Status);
-        Assert.Equal("Ad hoc", reloadedResponse.SelectedMaturityLevel!.Name);
+        Assert.Equal("Fragmented", reloadedResponse.SelectedMaturityLevel!.Name);
     }
 }
