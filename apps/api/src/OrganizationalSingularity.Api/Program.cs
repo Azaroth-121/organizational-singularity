@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +32,40 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// One-time seed of Framework Version 1.0.0 (OS-ASSESS-OIQ-001). Runs at startup rather
+// than per-request since it isn't tied to any particular caller; no-ops once any
+// FrameworkVersion exists, matching EnsureBootstrapMembershipAsync's fire-once pattern.
+using (var seedScope = app.Services.CreateScope())
+{
+    var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await FrameworkSeeder.EnsureFrameworkV1SeededAsync(seedDb);
+}
+
 // Configure the HTTP request pipeline.
+
+// Live request feed for the duration of the team test session: wraps the whole pipeline
+// (placed first) so it captures auth failures and every status code, not just successful
+// requests past the auth gate.
+app.Use(async (context, next) =>
+{
+    var sw = Stopwatch.StartNew();
+    await next();
+    sw.Stop();
+
+    var caller = context.User.Identity?.IsAuthenticated == true
+        ? TenantAuthorization.GetBestEmail(context.User) ?? context.User.GetObjectId() ?? "authenticated"
+        : "anonymous";
+
+    app.Logger.LogInformation(
+        "{Method} {Path}{Query} -> {StatusCode} ({ElapsedMs}ms) [{Caller}]",
+        context.Request.Method,
+        context.Request.Path,
+        context.Request.QueryString,
+        context.Response.StatusCode,
+        sw.ElapsedMilliseconds,
+        caller);
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -101,6 +135,7 @@ app.MapGet("/api/v1/me/memberships", async (
 app.MapOrganizationEndpoints();
 app.MapMembershipEndpoints();
 app.MapInvitationEndpoints();
+app.MapIntelligenceDebtEndpoints();
 
 app.Run();
 

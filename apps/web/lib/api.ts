@@ -183,3 +183,187 @@ export function removeMember(
     method: "DELETE",
   });
 }
+
+export interface ApiIntelligenceDebtSummary {
+  id: string;
+  code: string;
+  title: string;
+  category: string;
+  severity: string;
+  status: string;
+  detectionSource: string;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  organizationId: string;
+  version: number;
+  createdAtUtc: string;
+}
+
+export interface ApiIntelligenceDebtEvidence {
+  id: string;
+  evidenceType: string;
+  description: string;
+  sourceReference: string | null;
+  assessmentResponseId: string | null;
+  documentId: string | null;
+  externalUri: string | null;
+  addedByUserId: string;
+  addedByName: string | null;
+  addedAtUtc: string;
+}
+
+export interface ApiIntelligenceDebtDetail {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  category: string;
+  severity: string;
+  status: string;
+  detectionSource: string;
+  businessImpact: string | null;
+  affectedScope: string | null;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  targetResolutionDate: string | null;
+  organizationId: string;
+  organizationName: string | null;
+  assessmentId: string | null;
+  capabilityId: string | null;
+  capabilityName: string | null;
+  dimensionId: string | null;
+  dimensionName: string | null;
+  recommendedAction: string | null;
+  remediationPlan: string | null;
+  validationCriteria: string | null;
+  createdByUserId: string;
+  createdByName: string | null;
+  createdAtUtc: string;
+  approvedAtUtc: string | null;
+  approvedByName: string | null;
+  remediationStartedAtUtc: string | null;
+  resolvedAtUtc: string | null;
+  validatedAtUtc: string | null;
+  validatedByName: string | null;
+  outcome: string | null;
+  version: number;
+  evidence: ApiIntelligenceDebtEvidence[];
+  dependsOn: ApiIntelligenceDebtDependencyRef[];
+  dependedOnBy: ApiIntelligenceDebtDependencyRef[];
+}
+
+export interface ApiIntelligenceDebtDependencyRef {
+  dependencyId: string;
+  findingId: string;
+  code: string | null;
+  title: string | null;
+  status: string | null;
+}
+
+export function listIntelligenceDebtFindings(
+  accessToken: string,
+  tenantId: string
+): Promise<ApiResult<ApiIntelligenceDebtSummary[]>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt`, accessToken);
+}
+
+export function getIntelligenceDebtFinding(
+  accessToken: string,
+  tenantId: string,
+  findingId: string
+): Promise<ApiResult<ApiIntelligenceDebtDetail>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}`, accessToken);
+}
+
+export function createIntelligenceDebtFinding(
+  accessToken: string,
+  tenantId: string,
+  body: {
+    organizationId: string;
+    title: string;
+    description: string;
+    category: string;
+    severity: string;
+    detectionSource: string;
+    businessImpact?: string;
+    affectedScope?: string;
+    recommendedAction?: string;
+  }
+): Promise<ApiResult<ApiIntelligenceDebtSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateIntelligenceDebtFinding(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  body: {
+    expectedVersion: number;
+    title: string;
+    description: string;
+    category: string;
+    severity: string;
+    businessImpact?: string;
+    affectedScope?: string;
+    ownerUserId?: string | null;
+    targetResolutionDate?: string | null;
+    recommendedAction?: string;
+    remediationPlan?: string;
+    validationCriteria?: string;
+  }
+): Promise<ApiResult<ApiIntelligenceDebtSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}`, accessToken, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function transitionIntelligenceDebtFinding(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  body: { expectedVersion: number; toStatus: string; outcome?: string }
+): Promise<ApiResult<ApiIntelligenceDebtSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/transition`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function addIntelligenceDebtEvidence(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  body: { evidenceType: string; description: string; sourceReference?: string; externalUri?: string }
+): Promise<ApiResult<ApiIntelligenceDebtEvidence>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/evidence`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function addIntelligenceDebtDependency(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  dependsOnFindingId: string
+): Promise<ApiResult<{ id: string }>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/dependencies`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ dependsOnFindingId }),
+  });
+}
+
+export function removeIntelligenceDebtDependency(
+  accessToken: string,
+  tenantId: string,
+  findingId: string,
+  dependencyId: string
+): Promise<ApiResult<undefined>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/intelligence-debt/${findingId}/dependencies/${dependencyId}`, accessToken, {
+    method: "DELETE",
+  });
+}
