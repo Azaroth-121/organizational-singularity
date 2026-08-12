@@ -14,6 +14,8 @@ import {
   addIntelligenceDebtEvidence,
   addIntelligenceDebtDependency,
   removeIntelligenceDebtDependency,
+  listInitiatives,
+  createInitiative,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,6 +26,9 @@ import { ReviewPanel, type ReviewState } from "./review-panel";
 import { EvidenceForm, type EvidenceFormState } from "./evidence-form";
 import { AddDependencyForm, RemoveDependencyButton, type DependencyFormState } from "./dependency-form";
 import { EditFindingForm, type EditFindingState } from "./edit-finding-form";
+import { ConvertToInitiativeForm, type ConvertState } from "./convert-to-initiative-form";
+
+const CONVERTIBLE_STATUSES = ["ApprovedFinding", "Remediation", "Validation", "Validated"];
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -91,6 +96,12 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
 
   const isUnderReview = finding.status === "Detected" || finding.status === "EvidenceReviewed";
 
+  const initiativesResult = await listInitiatives(accessToken, tenantId);
+  const existingInitiative = initiativesResult.ok
+    ? initiativesResult.data.find((i) => i.sourceFindingId === findingId)
+    : undefined;
+  const isConvertible = CONVERTIBLE_STATUSES.includes(finding.status);
+
   async function transitionAction(
     toStatus: string,
     _prevState: TransitionState,
@@ -142,6 +153,34 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
     }
 
     revalidatePath(`/intelligence-debt/${findingId}`);
+    return { error: null };
+  }
+
+  async function convertToInitiativeAction(
+    _prevState: ConvertState,
+    formData: FormData
+  ): Promise<ConvertState> {
+    "use server";
+    const token = await getApiAccessToken();
+    if (!token) return { error: "No API access token available. Sign out and back in." };
+
+    const title = String(formData.get("title") ?? "").trim();
+    if (!title) return { error: "Title is required." };
+    const targetCompletionDate = String(formData.get("targetCompletionDate") ?? "");
+
+    const result = await createInitiative(token, tenantId, {
+      sourceFindingId: findingId,
+      title,
+      description: String(formData.get("description") ?? ""),
+      priority: String(formData.get("priority") ?? "Medium"),
+      targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
+    });
+    if (!result.ok) {
+      return { error: result.message ?? `Convert failed: API returned ${result.status ?? "a network error"}.` };
+    }
+
+    revalidatePath(`/intelligence-debt/${findingId}`);
+    revalidatePath("/roadmap");
     return { error: null };
   }
 
@@ -426,6 +465,29 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           {isAdminTier && <AddDependencyForm action={addDependencyAction} />}
         </CardContent>
       </Card>
+
+      {isAdminTier && isConvertible && (
+        <Card className="max-w-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">Roadmap</CardTitle>
+            <CardDescription>
+              {existingInitiative
+                ? "This finding already has an initiative."
+                : "Convert this approved finding into a roadmap initiative."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {existingInitiative ? (
+              <Link href={`/roadmap/${existingInitiative.id}`} className="text-sm hover:underline">
+                <span className="mr-2 font-mono text-xs text-muted-foreground">{existingInitiative.code}</span>
+                {existingInitiative.title} →
+              </Link>
+            ) : (
+              <ConvertToInitiativeForm defaultTitle={finding.title} action={convertToInitiativeAction} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isAdminTier && (
         <Card className="max-w-2xl">

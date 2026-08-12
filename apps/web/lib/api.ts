@@ -552,3 +552,190 @@ export function getAssessmentResult(
 ): Promise<ApiResult<ApiAssessmentResult>> {
   return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/result`, accessToken);
 }
+
+export interface ApiInitiativeSummary {
+  id: string;
+  code: string;
+  title: string;
+  priority: string;
+  status: string;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  organizationId: string;
+  organizationName: string | null;
+  sourceFindingId: string;
+  sourceFindingCode: string | null;
+  targetCompletionDate: string | null;
+  version: number;
+  createdAtUtc: string;
+}
+
+export interface ApiInitiativeMilestone {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  isDone: boolean;
+  completedAtUtc: string | null;
+}
+
+export interface ApiInitiativeDependencyRef {
+  dependencyId: string;
+  initiativeId: string;
+  code: string | null;
+  title: string | null;
+  status: string | null;
+}
+
+export interface ApiInitiativeDetail {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  priority: string;
+  status: string;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  organizationId: string;
+  organizationName: string | null;
+  sourceFindingId: string;
+  sourceFindingCode: string | null;
+  sourceFindingTitle: string | null;
+  expectedOutcome: string | null;
+  targetStartDate: string | null;
+  targetCompletionDate: string | null;
+  completedAtUtc: string | null;
+  createdByUserId: string;
+  createdByName: string | null;
+  createdAtUtc: string;
+  version: number;
+  milestones: ApiInitiativeMilestone[];
+  dependsOn: ApiInitiativeDependencyRef[];
+  dependedOnBy: ApiInitiativeDependencyRef[];
+}
+
+export function listInitiatives(
+  accessToken: string,
+  tenantId: string
+): Promise<ApiResult<ApiInitiativeSummary[]>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives`, accessToken);
+}
+
+export function getInitiative(
+  accessToken: string,
+  tenantId: string,
+  id: string
+): Promise<ApiResult<ApiInitiativeDetail>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}`, accessToken);
+}
+
+export function createInitiative(
+  accessToken: string,
+  tenantId: string,
+  body: {
+    sourceFindingId: string;
+    title: string;
+    description: string;
+    priority: string;
+    expectedOutcome?: string;
+    ownerUserId?: string | null;
+    targetStartDate?: string | null;
+    targetCompletionDate?: string | null;
+  }
+): Promise<ApiResult<ApiInitiativeSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateInitiative(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  body: {
+    expectedVersion: number;
+    title: string;
+    description: string;
+    priority: string;
+    expectedOutcome?: string;
+    ownerUserId?: string | null;
+    targetStartDate?: string | null;
+    targetCompletionDate?: string | null;
+  }
+): Promise<ApiResult<ApiInitiativeSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}`, accessToken, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function transitionInitiative(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  body: { expectedVersion: number; toStatus: string }
+): Promise<ApiResult<ApiInitiativeSummary>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/transition`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function addInitiativeMilestone(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  body: { title: string; dueDate?: string | null }
+): Promise<ApiResult<ApiInitiativeMilestone>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/milestones`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateInitiativeMilestone(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  milestoneId: string,
+  body: { title: string; dueDate?: string | null; isDone: boolean }
+): Promise<ApiResult<ApiInitiativeMilestone>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/milestones/${milestoneId}`, accessToken, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function removeInitiativeMilestone(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  milestoneId: string
+): Promise<ApiResult<undefined>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/milestones/${milestoneId}`, accessToken, {
+    method: "DELETE",
+  });
+}
+
+export function addInitiativeDependency(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  dependsOnInitiativeId: string
+): Promise<ApiResult<{ id: string }>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/dependencies`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ dependsOnInitiativeId }),
+  });
+}
+
+export function removeInitiativeDependency(
+  accessToken: string,
+  tenantId: string,
+  id: string,
+  dependencyId: string
+): Promise<ApiResult<undefined>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/initiatives/${id}/dependencies/${dependencyId}`, accessToken, {
+    method: "DELETE",
+  });
+}
