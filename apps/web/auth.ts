@@ -40,6 +40,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // Explicit because the callbacks below assume the full token lives in the
   // encrypted JWT cookie, not a database session.
   session: { strategy: "jwt" },
+  trustHost: true,
+  // Forced rather than left to auto-detection from the request's protocol: behind the
+  // Cloudflare tunnel (HTTPS at the edge, plain HTTP to this dev server), that detection
+  // was inconsistent between the initial sign-in redirect and the OAuth callback -- the
+  // two ended up using different cookie name prefixes (__Secure- vs not), so the PKCE
+  // verifier cookie set on the way out couldn't be read back on the way in
+  // (InvalidCheck: pkceCodeVerifier value could not be parsed). AUTH_URL is only ever set
+  // to a real https:// URL (see apps/web/.env.local), so this is always correct to force.
+  useSecureCookies: true,
   providers: [
     MicrosoftEntraID({
       clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID!,
