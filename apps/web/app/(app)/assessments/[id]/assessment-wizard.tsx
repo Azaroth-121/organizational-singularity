@@ -74,6 +74,7 @@ export function AssessmentWizard({
     return firstUnanswered === -1 ? 0 : firstUnanswered;
   });
   const [detailOpen, setDetailOpen] = useState(false);
+  const [prevIndex, setPrevIndex] = useState(index);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -86,9 +87,13 @@ export function AssessmentWizard({
   const question = questions[index];
   const draft = drafts[question.id];
 
-  useEffect(() => {
+  // Reset the detail section when the question changes -- adjusted during render (React's
+  // recommended pattern for this) rather than in an effect, since a synchronous setState
+  // inside an effect body triggers an extra, avoidable render pass.
+  if (index !== prevIndex) {
+    setPrevIndex(index);
     setDetailOpen(false);
-  }, [index]);
+  }
 
   useEffect(() => {
     if (readOnly) return;

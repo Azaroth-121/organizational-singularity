@@ -152,7 +152,7 @@ export default async function ExecutiveReportPage({ params }: { params: Promise<
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Evidence summary</CardTitle>
-          <CardDescription>How much of this assessment's {answered.length} answered questions rest on real evidence.</CardDescription>
+          <CardDescription>How much of this assessment&apos;s {answered.length} answered questions rest on real evidence.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

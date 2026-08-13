@@ -63,7 +63,7 @@ module budget '../../modules/budgets-alerts.bicep' = {
 
 module resources 'resources.bicep' = {
   name: 'deploy-dev-resources'
-  scope: resourceGroup(names.resourceGroup)
+  scope: az.resourceGroup(names.resourceGroup)
   params: {
     location: location
     tags: tags
