@@ -370,6 +370,23 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           </CardContent>
         </Card>
 
+        {finding.detection && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Why this was detected</CardTitle>
+              <CardDescription>The exact rule and observed score that produced this finding.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Field
+                label="Observed score vs. threshold"
+                value={`${finding.detection.observedScore.toFixed(2)} (threshold ${finding.detection.thresholdUsed.toFixed(2)})`}
+              />
+              <Field label="Maturity band" value={finding.detection.maturityBand} />
+              <Field label="Detected" value={new Date(finding.detection.detectedAtUtc).toLocaleString()} />
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">History</CardTitle>

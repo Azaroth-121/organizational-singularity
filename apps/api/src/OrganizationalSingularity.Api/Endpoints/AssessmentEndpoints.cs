@@ -25,7 +25,9 @@ public static class AssessmentEndpoints
         group.MapPost("", CreateAsync);
         group.MapPut("/{id:guid}/responses/{questionId:guid}", SaveResponseAsync);
         group.MapPost("/{id:guid}/submit", SubmitAsync);
+        group.MapPost("/{id:guid}/cancel", CancelAsync);
         group.MapGet("/{id:guid}/result", GetResultAsync);
+        group.MapGet("/{id:guid}/lineage", GetLineageAsync);
     }
 
     public record CreateAssessmentRequest(Guid OrganizationId, Guid? SupersedesAssessmentId);
@@ -40,7 +42,7 @@ public static class AssessmentEndpoints
     private static bool TryParseEnum<TEnum>(string value, out TEnum result) where TEnum : struct, Enum =>
         Enum.TryParse(value, ignoreCase: true, out result) && Enum.IsDefined(result);
 
-    private static object ToSummaryDto(Assessment a, int answeredCount, int totalCount) => new
+    private static object ToSummaryDto(Assessment a, int answeredCount, int totalCount, Guid? supersededByAssessmentId = null) => new
     {
         id = a.Id,
         organizationId = a.OrganizationId,
@@ -49,6 +51,7 @@ public static class AssessmentEndpoints
         frameworkVersionLabel = a.FrameworkVersion is null ? null : $"{a.FrameworkVersion.Name} {a.FrameworkVersion.Version}",
         status = a.Status.ToString(),
         supersedesAssessmentId = a.SupersedesAssessmentId,
+        supersededByAssessmentId,
         createdAtUtc = a.CreatedAtUtc,
         submittedAtUtc = a.SubmittedAtUtc,
         completedAtUtc = a.CompletedAtUtc,
@@ -80,10 +83,15 @@ public static class AssessmentEndpoints
             })
             .ToDictionaryAsync(g => g.AssessmentId, ct);
 
+        var supersededByMap = assessments
+            .Where(a => a.SupersedesAssessmentId is not null)
+            .ToDictionary(a => a.SupersedesAssessmentId!.Value, a => a.Id);
+
         return Results.Ok(assessments.Select(a =>
         {
             counts.TryGetValue(a.Id, out var c);
-            return ToSummaryDto(a, c?.Answered ?? 0, c?.Total ?? 0);
+            Guid? supersededBy = supersededByMap.TryGetValue(a.Id, out var sb) ? sb : null;
+            return ToSummaryDto(a, c?.Answered ?? 0, c?.Total ?? 0, supersededBy);
         }));
     }
 
@@ -106,8 +114,14 @@ public static class AssessmentEndpoints
             .ToListAsync(ct);
 
         var responses = await db.AssessmentResponses
+            .Include(r => r.CarriedForwardFromResponse)
             .Where(r => r.AssessmentId == id && r.TenantId == tenantId)
             .ToDictionaryAsync(r => r.QuestionId, ct);
+
+        var supersededByAssessmentId = await db.Assessments
+            .Where(a => a.SupersedesAssessmentId == id)
+            .Select(a => (Guid?)a.Id)
+            .SingleOrDefaultAsync(ct);
 
         var shape = new
         {
@@ -117,6 +131,7 @@ public static class AssessmentEndpoints
             frameworkVersionLabel = $"{assessment.FrameworkVersion!.Name} {assessment.FrameworkVersion.Version}",
             status = assessment.Status.ToString(),
             supersedesAssessmentId = assessment.SupersedesAssessmentId,
+            supersededByAssessmentId,
             createdAtUtc = assessment.CreatedAtUtc,
             submittedAtUtc = assessment.SubmittedAtUtc,
             completedAtUtc = assessment.CompletedAtUtc,
@@ -151,6 +166,15 @@ public static class AssessmentEndpoints
                                 respondentComment = r.RespondentComment,
                                 confidence = r.Confidence?.ToString(),
                                 evidenceReferences = r.EvidenceReferences,
+                                isCarriedForward = r.IsCarriedForward,
+                                confirmedAtUtc = r.ConfirmedAtUtc,
+                                carriedForwardFrom = r.CarriedForwardFromResponse is null ? null : new
+                                {
+                                    selectedMaturityLevelId = r.CarriedForwardFromResponse.SelectedMaturityLevelId,
+                                    respondentComment = r.CarriedForwardFromResponse.RespondentComment,
+                                    confidence = r.CarriedForwardFromResponse.Confidence?.ToString(),
+                                    evidenceReferences = r.CarriedForwardFromResponse.EvidenceReferences,
+                                },
                             },
                         };
                     }),
@@ -178,6 +202,7 @@ public static class AssessmentEndpoints
             return Results.Problem("Organization not found in this tenant.", statusCode: StatusCodes.Status400BadRequest);
         }
 
+        Dictionary<Guid, AssessmentResponse>? priorResponsesByQuestionId = null;
         if (request.SupersedesAssessmentId is Guid supersedesId)
         {
             var supersedes = await db.Assessments.SingleOrDefaultAsync(
@@ -190,6 +215,18 @@ public static class AssessmentEndpoints
             {
                 return Results.Problem("Only a Completed assessment can be superseded.", statusCode: StatusCodes.Status400BadRequest);
             }
+            // Lineage must stay a strict linked list: only the current head of a chain
+            // may be reassessed. The partial unique index on SupersedesAssessmentId is
+            // the hard backstop if two requests race past this check simultaneously.
+            var alreadyReassessed = await db.Assessments.AnyAsync(a => a.SupersedesAssessmentId == supersedesId, ct);
+            if (alreadyReassessed)
+            {
+                return Results.Problem("This assessment has already been reassessed.", statusCode: StatusCodes.Status409Conflict);
+            }
+
+            priorResponsesByQuestionId = await db.AssessmentResponses
+                .Where(r => r.AssessmentId == supersedesId && r.TenantId == tenantId)
+                .ToDictionaryAsync(r => r.QuestionId, ct);
         }
 
         var frameworkVersion = await db.FrameworkVersions
@@ -216,15 +253,36 @@ public static class AssessmentEndpoints
         };
         db.Assessments.Add(assessment);
 
+        var prefilledCount = 0;
         foreach (var questionId in questionIds)
         {
-            db.AssessmentResponses.Add(new AssessmentResponse
+            var response = new AssessmentResponse
             {
                 TenantId = tenantId,
                 AssessmentId = assessment.Id,
                 QuestionId = questionId,
                 AnswerState = ResponseAnswerState.Unanswered,
-            });
+            };
+
+            // Pre-fill from the superseded assessment's answer to the same question, if
+            // any -- editable, and must be explicitly confirmed or changed before this
+            // assessment can submit (see SubmitAsync). Never touches the prior
+            // assessment's own rows.
+            if (priorResponsesByQuestionId is not null
+                && priorResponsesByQuestionId.TryGetValue(questionId, out var prior)
+                && prior.AnswerState != ResponseAnswerState.Unanswered)
+            {
+                response.AnswerState = prior.AnswerState;
+                response.SelectedMaturityLevelId = prior.SelectedMaturityLevelId;
+                response.RespondentComment = prior.RespondentComment;
+                response.Confidence = prior.Confidence;
+                response.EvidenceReferences = prior.EvidenceReferences;
+                response.IsCarriedForward = true;
+                response.CarriedForwardFromResponseId = prior.Id;
+                prefilledCount++;
+            }
+
+            db.AssessmentResponses.Add(response);
         }
 
         db.AuditEvents.Add(new AuditEvent
@@ -234,12 +292,18 @@ public static class AssessmentEndpoints
             EventType = "Assessment.Created",
             EntityType = "Assessment",
             EntityId = assessment.Id,
-            PayloadJson = JsonSerializer.Serialize(new { assessment.OrganizationId, frameworkVersion = frameworkVersion.Version, questionCount = questionIds.Count }),
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                assessment.OrganizationId,
+                frameworkVersion = frameworkVersion.Version,
+                questionCount = questionIds.Count,
+                prefilledFromAssessmentId = request.SupersedesAssessmentId,
+            }),
         });
 
         await db.SaveChangesAsync(ct);
 
-        return Results.Created($"/api/v1/tenants/{tenantId}/assessments/{assessment.Id}", ToSummaryDto(assessment, 0, questionIds.Count));
+        return Results.Created($"/api/v1/tenants/{tenantId}/assessments/{assessment.Id}", ToSummaryDto(assessment, prefilledCount, questionIds.Count));
     }
 
     private static async Task<IResult> SaveResponseAsync(
@@ -278,8 +342,9 @@ public static class AssessmentEndpoints
             return Results.Problem("This assessment is no longer editable.", statusCode: StatusCodes.Status409Conflict);
         }
 
-        var response = await db.AssessmentResponses.SingleOrDefaultAsync(
-            r => r.AssessmentId == id && r.QuestionId == questionId && r.TenantId == tenantId, ct);
+        var response = await db.AssessmentResponses
+            .Include(r => r.CarriedForwardFromResponse)
+            .SingleOrDefaultAsync(r => r.AssessmentId == id && r.QuestionId == questionId && r.TenantId == tenantId, ct);
         if (response is null) return Results.NotFound();
 
         if (answerState == ResponseAnswerState.Answered)
@@ -308,6 +373,14 @@ public static class AssessmentEndpoints
         response.EvidenceReferences = request.EvidenceReferences;
         response.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
+        // Turns "pre-filled" into "reviewed" -- any successful save counts, whether the
+        // respondent changed the value or explicitly re-saved it as-is. No-op for rows
+        // that were never carried forward.
+        if (response.IsCarriedForward)
+        {
+            response.ConfirmedAtUtc = DateTimeOffset.UtcNow;
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new
@@ -318,6 +391,15 @@ public static class AssessmentEndpoints
             respondentComment = response.RespondentComment,
             confidence = response.Confidence?.ToString(),
             evidenceReferences = response.EvidenceReferences,
+            isCarriedForward = response.IsCarriedForward,
+            confirmedAtUtc = response.ConfirmedAtUtc,
+            carriedForwardFrom = response.CarriedForwardFromResponse is null ? null : new
+            {
+                selectedMaturityLevelId = response.CarriedForwardFromResponse.SelectedMaturityLevelId,
+                respondentComment = response.CarriedForwardFromResponse.RespondentComment,
+                confidence = response.CarriedForwardFromResponse.Confidence?.ToString(),
+                evidenceReferences = response.CarriedForwardFromResponse.EvidenceReferences,
+            },
         });
     }
 
@@ -341,6 +423,18 @@ public static class AssessmentEndpoints
         {
             return Results.Problem(
                 $"{unansweredCount} question(s) still need an answer (or explicit Not Applicable) before this assessment can be submitted.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // A carried-forward answer is not silently authoritative -- the respondent must
+        // explicitly confirm or change it (SaveResponseAsync sets ConfirmedAtUtc on
+        // either) before it can count toward submission.
+        var unconfirmedCarriedForwardCount = await db.AssessmentResponses.CountAsync(
+            r => r.AssessmentId == id && r.TenantId == tenantId && r.IsCarriedForward && r.ConfirmedAtUtc == null, ct);
+        if (unconfirmedCarriedForwardCount > 0)
+        {
+            return Results.Problem(
+                $"{unconfirmedCarriedForwardCount} answer(s) carried forward from the prior assessment still need to be confirmed or updated before this assessment can be submitted.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -587,5 +681,108 @@ public static class AssessmentEndpoints
                     answeredQuestionCount = c.AnsweredQuestionCount,
                 }),
         });
+    }
+
+    private static async Task<IResult> CancelAsync(
+        Guid tenantId, Guid id, ClaimsPrincipal claims, UserProvisioningService provisioning, AppDbContext db, CancellationToken ct)
+    {
+        var (membership, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
+        if (error is not null) return error;
+        if (!CanWrite(membership!))
+        {
+            return Results.Problem("This role cannot cancel assessments.", statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var assessment = await db.Assessments.SingleOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId, ct);
+        if (assessment is null) return Results.NotFound();
+        if (assessment.Status is not (AssessmentStatus.Draft or AssessmentStatus.InProgress))
+        {
+            return Results.Problem("Only a Draft or InProgress assessment can be canceled.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        // Written before the delete -- AuditEvent.EntityId has no FK tying it to the
+        // assessment's continued existence, so the trail survives the cancellation.
+        db.AuditEvents.Add(new AuditEvent
+        {
+            TenantId = tenantId,
+            ActorUserId = membership!.UserId,
+            EventType = "Assessment.Cancelled",
+            EntityType = "Assessment",
+            EntityId = assessment.Id,
+            PayloadJson = JsonSerializer.Serialize(new { wasReassessmentOf = assessment.SupersedesAssessmentId }),
+        });
+
+        // Cascade-deletes the assessment's AssessmentResponse rows (Assessment ->
+        // AssessmentResponse is DeleteBehavior.Cascade). If this was a reassessment, this
+        // also frees the partial unique index slot on SupersedesAssessmentId, letting the
+        // prior assessment become head-of-chain again.
+        db.Assessments.Remove(assessment);
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetLineageAsync(
+        Guid tenantId, Guid id, ClaimsPrincipal claims, UserProvisioningService provisioning, AppDbContext db, CancellationToken ct)
+    {
+        var (_, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
+        if (error is not null) return error;
+
+        var target = await db.Assessments.SingleOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId, ct);
+        if (target is null) return Results.NotFound();
+
+        // The partial unique index on SupersedesAssessmentId guarantees this chain is a
+        // strict linked list, never a tree, so a bounded one-hop-at-a-time walk in each
+        // direction is sufficient -- no recursive CTE needed.
+        var chain = new List<Assessment> { target };
+
+        var cursor = target;
+        while (cursor.SupersedesAssessmentId is Guid priorId)
+        {
+            var prior = await db.Assessments.SingleOrDefaultAsync(a => a.Id == priorId && a.TenantId == tenantId, ct);
+            if (prior is null) break;
+            chain.Insert(0, prior);
+            cursor = prior;
+        }
+
+        cursor = target;
+        while (true)
+        {
+            var next = await db.Assessments.SingleOrDefaultAsync(a => a.SupersedesAssessmentId == cursor.Id && a.TenantId == tenantId, ct);
+            if (next is null) break;
+            chain.Add(next);
+            cursor = next;
+        }
+
+        var chainIds = chain.Select(a => a.Id).ToList();
+        var results = await db.AssessmentResults
+            .Include(r => r.DimensionScores).ThenInclude(d => d.Dimension)
+            .Where(r => chainIds.Contains(r.AssessmentId) && r.TenantId == tenantId)
+            .ToDictionaryAsync(r => r.AssessmentId, ct);
+
+        return Results.Ok(chain.Select(a =>
+        {
+            results.TryGetValue(a.Id, out var result);
+            return new
+            {
+                id = a.Id,
+                status = a.Status.ToString(),
+                isCurrent = a.Id == target.Id,
+                createdAtUtc = a.CreatedAtUtc,
+                submittedAtUtc = a.SubmittedAtUtc,
+                completedAtUtc = a.CompletedAtUtc,
+                compositeAverage = result?.CompositeAverage,
+                dimensionScores = result?.DimensionScores
+                    .OrderBy(d => d.Dimension!.SortOrder)
+                    .Select(d => new
+                    {
+                        dimensionId = d.DimensionId,
+                        code = d.Dimension!.Code,
+                        name = d.Dimension.Name,
+                        score = d.Score,
+                        maturityBand = d.MaturityBand,
+                    }),
+            };
+        }));
     }
 }

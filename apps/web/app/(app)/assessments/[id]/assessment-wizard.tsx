@@ -25,6 +25,14 @@ export interface FlatQuestion {
     respondentComment: string | null;
     confidence: string | null;
     evidenceReferences: string[] | null;
+    isCarriedForward: boolean;
+    confirmedAtUtc: string | null;
+    carriedForwardFrom: {
+      selectedMaturityLevelId: string | null;
+      respondentComment: string | null;
+      confidence: string | null;
+      evidenceReferences: string[] | null;
+    } | null;
   } | null;
 }
 
@@ -33,6 +41,7 @@ interface AnswerDraft {
   respondentComment: string;
   confidence: string;
   evidenceReferences: string;
+  confirmed: boolean; // only meaningful when the question is carried forward
 }
 
 type SavePayload = {
@@ -50,7 +59,12 @@ function draftFrom(q: FlatQuestion): AnswerDraft {
     respondentComment: r?.respondentComment ?? "",
     confidence: r?.confidence ?? "",
     evidenceReferences: r?.evidenceReferences?.join(", ") ?? "",
+    confirmed: !r?.isCarriedForward || r.confirmedAtUtc !== null,
   };
+}
+
+function needsConfirmation(q: FlatQuestion, draft: AnswerDraft | undefined): boolean {
+  return Boolean(q.response?.isCarriedForward) && !(draft?.confirmed ?? false);
 }
 
 export function AssessmentWizard({
@@ -82,7 +96,11 @@ export function AssessmentWizard({
 
   const total = questions.length;
   const answeredCount = useMemo(() => Object.values(drafts).filter((d) => d.selection).length, [drafts]);
-  const complete = answeredCount === total;
+  const unconfirmedCount = useMemo(
+    () => questions.filter((q) => needsConfirmation(q, drafts[q.id])).length,
+    [questions, drafts]
+  );
+  const complete = answeredCount === total && unconfirmedCount === 0;
 
   const question = questions[index];
   const draft = drafts[question.id];
@@ -128,6 +146,13 @@ export function AssessmentWizard({
         evidenceReferences: next.evidenceReferences.split(",").map((s) => s.trim()).filter(Boolean),
       });
       setError(result.error);
+      // Any successful save -- whether the value changed or was re-saved as-is --
+      // confirms a carried-forward answer server-side (SaveResponseAsync sets
+      // ConfirmedAtUtc unconditionally). Mirror that locally so the badge clears
+      // without a full page reload.
+      if (!result.error) {
+        setDrafts((prev) => ({ ...prev, [questionId]: { ...prev[questionId], confirmed: true } }));
+      }
     });
   }
 
@@ -145,6 +170,11 @@ export function AssessmentWizard({
 
   function commitDetail() {
     if (!readOnly && draft.selection) persist(question.id, draft);
+  }
+
+  function levelName(levelId: string | null) {
+    if (levelId === null) return "Not applicable";
+    return maturityLevels.find((l) => l.id === levelId)?.name ?? "—";
   }
 
   function goTo(i: number) {
@@ -176,8 +206,10 @@ export function AssessmentWizard({
         <div className="flex gap-1 overflow-x-auto pb-1">
           {questions.map((q, i) => {
             const state = drafts[q.id]?.selection;
-            const tone =
-              state === NOT_APPLICABLE_VALUE
+            const unconfirmed = needsConfirmation(q, drafts[q.id]);
+            const tone = unconfirmed
+              ? "bg-amber-500"
+              : state === NOT_APPLICABLE_VALUE
                 ? "bg-muted-foreground/40"
                 : state
                   ? "bg-primary"
@@ -186,7 +218,7 @@ export function AssessmentWizard({
               <button
                 key={q.id}
                 type="button"
-                title={`${q.code}${state ? " — answered" : ""}`}
+                title={`${q.code}${unconfirmed ? " — carried forward, needs confirmation" : state ? " — answered" : ""}`}
                 onClick={() => goTo(i)}
                 className={cn(
                   "h-2 w-4 shrink-0 rounded-full transition-transform",
@@ -206,6 +238,29 @@ export function AssessmentWizard({
           </p>
           <p className="mt-2 text-lg font-medium leading-snug">{question.text}</p>
         </div>
+
+        {needsConfirmation(question, draft) && question.response?.carriedForwardFrom && (
+          <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-amber-700 dark:text-amber-400">Carried forward from prior assessment</span>
+              {!readOnly && (
+                <button type="button" onClick={commitDetail} className="text-xs underline-offset-2 hover:underline">
+                  Confirm as-is
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Originally answered: {levelName(question.response.carriedForwardFrom.selectedMaturityLevelId)}
+              {question.response.carriedForwardFrom.respondentComment && ` — "${question.response.carriedForwardFrom.respondentComment}"`}
+            </p>
+            {question.response.carriedForwardFrom.evidenceReferences && question.response.carriedForwardFrom.evidenceReferences.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Inherited evidence: {question.response.carriedForwardFrom.evidenceReferences.join(", ")}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">Review the pre-filled answer below, then confirm or change it.</p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {maturityLevels.map((level) => {
@@ -310,7 +365,9 @@ export function AssessmentWizard({
           <p className="text-sm">
             {complete
               ? "All questions answered — ready to submit."
-              : `${total - answeredCount} question(s) still need an answer (or Not Applicable) before this assessment can be submitted.`}
+              : answeredCount < total
+                ? `${total - answeredCount} question(s) still need an answer (or Not Applicable) before this assessment can be submitted.`
+                : `${unconfirmedCount} answer(s) carried forward from the prior assessment still need to be confirmed or updated before this assessment can be submitted.`}
           </p>
           <div>
             <Button onClick={handleSubmit} disabled={!complete || isSubmitting}>

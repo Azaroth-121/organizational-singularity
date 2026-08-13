@@ -189,6 +189,11 @@ export default async function ExecutiveReportPage({ params }: { params: Promise<
                     <span className="truncate">
                       <span className="mr-2 font-mono text-xs text-muted-foreground">{f.code}</span>
                       {f.title}
+                      {f.detection && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({f.detection.observedScore.toFixed(1)} vs {f.detection.thresholdUsed.toFixed(1)} threshold)
+                        </span>
+                      )}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
                       <Badge variant={SEVERITY_TONE[f.severity] ?? "outline"}>{f.severity}</Badge>

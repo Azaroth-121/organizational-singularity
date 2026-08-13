@@ -184,6 +184,16 @@ export function removeMember(
   });
 }
 
+export interface ApiIntelligenceDebtDetectionSummary {
+  observedScore: number;
+  maturityBand: string;
+  thresholdUsed: number;
+}
+
+export interface ApiIntelligenceDebtDetection extends ApiIntelligenceDebtDetectionSummary {
+  detectedAtUtc: string;
+}
+
 export interface ApiIntelligenceDebtSummary {
   id: string;
   code: string;
@@ -195,8 +205,10 @@ export interface ApiIntelligenceDebtSummary {
   ownerUserId: string | null;
   ownerName: string | null;
   organizationId: string;
+  assessmentId: string | null;
   version: number;
   createdAtUtc: string;
+  detection: ApiIntelligenceDebtDetectionSummary | null;
 }
 
 export interface ApiIntelligenceDebtEvidence {
@@ -247,6 +259,7 @@ export interface ApiIntelligenceDebtDetail {
   validatedByName: string | null;
   outcome: string | null;
   version: number;
+  detection: ApiIntelligenceDebtDetection | null;
   evidence: ApiIntelligenceDebtEvidence[];
   dependsOn: ApiIntelligenceDebtDependencyRef[];
   dependedOnBy: ApiIntelligenceDebtDependencyRef[];
@@ -405,6 +418,7 @@ export interface ApiAssessmentSummary {
   frameworkVersionLabel: string | null;
   status: string;
   supersedesAssessmentId: string | null;
+  supersededByAssessmentId: string | null;
   createdAtUtc: string;
   submittedAtUtc: string | null;
   completedAtUtc: string | null;
@@ -419,12 +433,22 @@ export interface ApiMaturityLevel {
   description: string | null;
 }
 
+export interface ApiCarriedForwardSnapshot {
+  selectedMaturityLevelId: string | null;
+  respondentComment: string | null;
+  confidence: string | null;
+  evidenceReferences: string[] | null;
+}
+
 export interface ApiAssessmentResponse {
   answerState: string;
   selectedMaturityLevelId: string | null;
   respondentComment: string | null;
   confidence: string | null;
   evidenceReferences: string[] | null;
+  isCarriedForward: boolean;
+  confirmedAtUtc: string | null;
+  carriedForwardFrom: ApiCarriedForwardSnapshot | null;
 }
 
 export interface ApiAssessmentQuestion {
@@ -458,11 +482,23 @@ export interface ApiAssessmentDetail {
   frameworkVersionLabel: string;
   status: string;
   supersedesAssessmentId: string | null;
+  supersededByAssessmentId: string | null;
   createdAtUtc: string;
   submittedAtUtc: string | null;
   completedAtUtc: string | null;
   maturityLevels: ApiMaturityLevel[];
   dimensions: ApiAssessmentDimension[];
+}
+
+export interface ApiAssessmentLineageEntry {
+  id: string;
+  status: string;
+  isCurrent: boolean;
+  createdAtUtc: string;
+  submittedAtUtc: string | null;
+  completedAtUtc: string | null;
+  compositeAverage: number | null;
+  dimensionScores: ApiDimensionScore[] | null;
 }
 
 export interface ApiDimensionScore {
@@ -551,6 +587,24 @@ export function getAssessmentResult(
   assessmentId: string
 ): Promise<ApiResult<ApiAssessmentResult>> {
   return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/result`, accessToken);
+}
+
+export function cancelAssessment(
+  accessToken: string,
+  tenantId: string,
+  assessmentId: string
+): Promise<ApiResult<undefined>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/cancel`, accessToken, {
+    method: "POST",
+  });
+}
+
+export function getAssessmentLineage(
+  accessToken: string,
+  tenantId: string,
+  assessmentId: string
+): Promise<ApiResult<ApiAssessmentLineageEntry[]>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/assessments/${assessmentId}/lineage`, accessToken);
 }
 
 export interface ApiInitiativeSummary {

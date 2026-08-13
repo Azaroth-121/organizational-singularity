@@ -160,6 +160,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.SupersedesAssessmentId)
                 .OnDelete(DeleteBehavior.Restrict);
+            // At most one assessment may supersede a given assessment -- lineage is a
+            // strict linked list, never a tree. This is the hard backstop behind the
+            // API-layer check in CreateAsync; a partial index (not a plain unique index)
+            // because SupersedesAssessmentId is null for every non-reassessment row.
+            e.HasIndex(x => x.SupersedesAssessmentId)
+                .IsUnique()
+                .HasFilter("\"SupersedesAssessmentId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<AssessmentResponse>(e =>
@@ -181,6 +188,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(x => x.ReviewedMaturityLevel)
                 .WithMany()
                 .HasForeignKey(x => x.ReviewedMaturityLevelId)
+                .OnDelete(DeleteBehavior.Restrict);
+            // Self-referencing -- Restrict is also required here, not just preferred:
+            // EF/Postgres won't allow a second cascade path onto AssessmentResponse
+            // alongside the Assessment -> AssessmentResponse cascade above.
+            e.HasOne(x => x.CarriedForwardFromResponse)
+                .WithMany()
+                .HasForeignKey(x => x.CarriedForwardFromResponseId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

@@ -53,7 +53,7 @@ public static class IntelligenceDebtEndpoints
 
     public record DependencyRequest(Guid DependsOnFindingId);
 
-    private static object ToSummaryDto(IntelligenceDebtFinding f) => new
+    private static object ToSummaryDto(IntelligenceDebtFinding f, IntelligenceDebtDetectionProvenance? detection = null) => new
     {
         id = f.Id,
         code = f.Code,
@@ -65,14 +65,22 @@ public static class IntelligenceDebtEndpoints
         ownerUserId = f.OwnerUserId,
         ownerName = f.OwnerUser?.DisplayName,
         organizationId = f.OrganizationId,
+        assessmentId = f.AssessmentId,
         version = f.Version,
         createdAtUtc = f.CreatedAtUtc,
+        detection = detection is null ? null : new
+        {
+            observedScore = detection.ObservedScore,
+            maturityBand = detection.MaturityBand,
+            thresholdUsed = detection.ThresholdUsed,
+        },
     };
 
     private static object ToDetailDto(
         IntelligenceDebtFinding f,
         List<IntelligenceDebtDependency> dependsOn,
-        List<IntelligenceDebtDependency> dependedOnBy) => new
+        List<IntelligenceDebtDependency> dependedOnBy,
+        IntelligenceDebtDetectionProvenance? detection) => new
     {
         id = f.Id,
         code = f.Code,
@@ -108,6 +116,13 @@ public static class IntelligenceDebtEndpoints
         validatedByName = f.ValidatedByUser?.DisplayName,
         outcome = f.Outcome,
         version = f.Version,
+        detection = detection is null ? null : new
+        {
+            observedScore = detection.ObservedScore,
+            maturityBand = detection.MaturityBand,
+            thresholdUsed = detection.ThresholdUsed,
+            detectedAtUtc = detection.DetectedAtUtc,
+        },
         evidence = f.Evidence.Select(e => new
         {
             id = e.Id,
@@ -172,7 +187,16 @@ public static class IntelligenceDebtEndpoints
             .OrderByDescending(f => f.CreatedAtUtc)
             .ToListAsync(ct);
 
-        return Results.Ok(findings.Select(ToSummaryDto));
+        var findingIds = findings.Select(f => f.Id).ToList();
+        var detections = await db.IntelligenceDebtDetectionProvenances
+            .Where(p => p.TenantId == tenantId && findingIds.Contains(p.FindingId))
+            .ToDictionaryAsync(p => p.FindingId, ct);
+
+        return Results.Ok(findings.Select(f =>
+        {
+            detections.TryGetValue(f.Id, out var detection);
+            return ToSummaryDto(f, detection);
+        }));
     }
 
     private static async Task<IResult> GetAsync(
@@ -203,7 +227,10 @@ public static class IntelligenceDebtEndpoints
             .Where(d => d.TenantId == tenantId && d.DependsOnFindingId == findingId)
             .ToListAsync(ct);
 
-        return Results.Ok(ToDetailDto(finding, dependsOn, dependedOnBy));
+        var detection = await db.IntelligenceDebtDetectionProvenances
+            .SingleOrDefaultAsync(p => p.TenantId == tenantId && p.FindingId == findingId, ct);
+
+        return Results.Ok(ToDetailDto(finding, dependsOn, dependedOnBy, detection));
     }
 
     private static async Task<IResult> CreateAsync(

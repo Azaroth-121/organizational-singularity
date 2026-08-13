@@ -38,4 +38,21 @@ public class AssessmentResponse : TenantOwnedEntity
     public Guid? ReviewedMaturityLevelId { get; set; }
     public MaturityLevel? ReviewedMaturityLevel { get; set; }
     public string? ReviewerComment { get; set; }
+
+    /// <summary>True only for rows pre-filled from a superseded assessment at
+    /// reassessment creation time -- set once, never changes afterward.</summary>
+    public bool IsCarriedForward { get; set; }
+
+    /// <summary>Set the first time this question is saved again after being carried
+    /// forward, whether or not the respondent actually changed the value -- "confirm
+    /// as-is" and "edit it" both count as review. Null for non-carried-forward rows.</summary>
+    public DateTimeOffset? ConfirmedAtUtc { get; set; }
+
+    /// <summary>The exact source response this row was pre-filled from, in the
+    /// superseded assessment -- e.g. Assessment 1 / Response 123 -&gt; Assessment 2 /
+    /// Response 456. Lets the UI show precisely what was inherited (including which
+    /// evidence references are inherited vs. newly added) instead of the new response
+    /// looking independently sourced. Null for non-carried-forward rows.</summary>
+    public Guid? CarriedForwardFromResponseId { get; set; }
+    public AssessmentResponse? CarriedForwardFromResponse { get; set; }
 }
