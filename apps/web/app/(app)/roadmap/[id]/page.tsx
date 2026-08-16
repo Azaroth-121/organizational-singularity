@@ -14,10 +14,10 @@ import {
   addInitiativeDependency,
   removeInitiativeDependency,
 } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ADMIN_TIER_ROLES } from "../../members/roles";
-import { STATUS_LABELS, PRIORITY_TONE, ALLOWED_TRANSITIONS } from "../values";
+import { STATUS_LABELS, PRIORITY_TONE, INITIATIVE_STATUS_TONE, ALLOWED_TRANSITIONS } from "../values";
 import { TransitionActions, type TransitionState } from "./transition-actions";
 import { MilestonePanel, type MilestoneState } from "./milestone-panel";
 import { AddDependencyForm, RemoveDependencyButton, type DependencyFormState } from "./dependency-form";
@@ -248,8 +248,10 @@ export default async function InitiativeDetailPage({ params }: { params: Promise
           <h1 className="text-2xl font-semibold">{initiative.title}</h1>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Badge variant={PRIORITY_TONE[initiative.priority] ?? "outline"}>{initiative.priority}</Badge>
-          <Badge variant="outline">{STATUS_LABELS[initiative.status] ?? initiative.status}</Badge>
+          <StatusBadge tone={PRIORITY_TONE[initiative.priority] ?? "neutral"} showIcon={false}>{initiative.priority}</StatusBadge>
+          <StatusBadge tone={INITIATIVE_STATUS_TONE[initiative.status] ?? "neutral"} showIcon={false}>
+            {STATUS_LABELS[initiative.status] ?? initiative.status}
+          </StatusBadge>
           {initiative.sourceFindingCode && (
             <Link href={`/intelligence-debt/${initiative.sourceFindingId}`} className="text-xs text-muted-foreground hover:underline">
               from {initiative.sourceFindingCode}

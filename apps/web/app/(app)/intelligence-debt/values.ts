@@ -1,6 +1,8 @@
 // Mirrors OrganizationalSingularity.Domain.IntelligenceDebt (apps/api). Keep in sync --
 // the API is the source of truth and validates server-side regardless of what's sent here.
 
+import type { StatusTone } from "@/components/ui/status-badge";
+
 export const CATEGORY_LABELS: Record<string, string> = {
   FragmentedKnowledge: "Fragmented Knowledge",
   DisconnectedSystems: "Disconnected Systems",
@@ -45,10 +47,23 @@ export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   Rejected: ["Detected"],
 };
 
-export const SEVERITY_TONE: Record<string, "default" | "outline" | "destructive"> = {
-  Informational: "outline",
-  Low: "outline",
-  Moderate: "default",
-  High: "destructive",
-  Critical: "destructive",
+export const SEVERITY_TONE: Record<string, StatusTone> = {
+  Informational: "neutral",
+  Low: "good",
+  Moderate: "warning",
+  High: "serious",
+  Critical: "critical",
+};
+
+// Findings in an active/authoritative state read as "warning" (needs attention);
+// terminal states read as "good" (resolved) or "neutral" (closed without action).
+export const FINDING_STATUS_TONE: Record<string, StatusTone> = {
+  Detected: "neutral",
+  EvidenceReviewed: "neutral",
+  ApprovedFinding: "warning",
+  Remediation: "warning",
+  Validation: "warning",
+  Validated: "good",
+  Rejected: "neutral",
+  Deferred: "neutral",
 };

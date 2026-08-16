@@ -3,9 +3,15 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import { CONFIDENCE_LABELS, CONFIDENCE_VALUES } from "../values";
 import type { ApiMaturityLevel } from "@/lib/api";
+
+const NO_CONFIDENCE = "__none__";
 
 export const NOT_APPLICABLE_VALUE = "__na__";
 
@@ -191,24 +197,19 @@ export function AssessmentWizard({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span className="tabular-nums">
+        <div className="flex items-center justify-between text-sm">
+          <span className="tabular-nums text-muted-foreground">
             Question {index + 1} of {total}
           </span>
-          <span className="tabular-nums">{answeredCount}/{total} answered</span>
+          <span className="font-medium tabular-nums">{answeredCount}/{total} answered</span>
         </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-            style={{ width: `${(answeredCount / total) * 100}%` }}
-          />
-        </div>
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <Progress value={(answeredCount / total) * 100} />
+        <div className="flex gap-1 overflow-x-auto pb-1 pt-1">
           {questions.map((q, i) => {
             const state = drafts[q.id]?.selection;
             const unconfirmed = needsConfirmation(q, drafts[q.id]);
             const tone = unconfirmed
-              ? "bg-amber-500"
+              ? "bg-status-warning"
               : state === NOT_APPLICABLE_VALUE
                 ? "bg-muted-foreground/40"
                 : state
@@ -240,11 +241,11 @@ export function AssessmentWizard({
         </div>
 
         {needsConfirmation(question, draft) && question.response?.carriedForwardFrom && (
-          <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="flex flex-col gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium text-amber-700 dark:text-amber-400">Carried forward from prior assessment</span>
+              <StatusBadge tone="warning">Carried forward from prior assessment</StatusBadge>
               {!readOnly && (
-                <button type="button" onClick={commitDetail} className="text-xs underline-offset-2 hover:underline">
+                <button type="button" onClick={commitDetail} className="text-xs text-primary underline-offset-2 hover:underline">
                   Confirm as-is
                 </button>
               )}
@@ -307,30 +308,34 @@ export function AssessmentWizard({
             {question.evidenceGuidance && (
               <p className="text-xs text-muted-foreground">Evidence examples: {question.evidenceGuidance}</p>
             )}
-            <textarea
+            <Textarea
               placeholder="Comment (optional)"
               value={draft.respondentComment}
               onChange={(e) => updateDetail({ respondentComment: e.target.value })}
               onBlur={commitDetail}
               disabled={readOnly}
               rows={2}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
             />
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={draft.confidence}
-                onChange={(e) => {
-                  updateDetail({ confidence: e.target.value });
+              <Select
+                value={draft.confidence || NO_CONFIDENCE}
+                onValueChange={(value) => {
+                  const next: AnswerDraft = { ...draft, confidence: value && value !== NO_CONFIDENCE ? value : "" };
+                  setDrafts((prev) => ({ ...prev, [question.id]: next }));
+                  if (!readOnly && next.selection) persist(question.id, next);
                 }}
-                onBlur={commitDetail}
                 disabled={readOnly}
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
               >
-                <option value="">Evidence confidence…</option>
-                {CONFIDENCE_VALUES.map((c) => (
-                  <option key={c} value={c}>{CONFIDENCE_LABELS[c]}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-full sm:w-56">
+                  <SelectValue placeholder="Evidence confidence…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_CONFIDENCE}>Evidence confidence…</SelectItem>
+                  {CONFIDENCE_VALUES.map((c) => (
+                    <SelectItem key={c} value={c}>{CONFIDENCE_LABELS[c]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Input
                 placeholder="Evidence references (comma-separated)"
                 value={draft.evidenceReferences}

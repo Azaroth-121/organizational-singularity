@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { AlertTriangle, Building2, ClipboardList } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatTile } from "@/components/ui/stat-tile";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { ApiAssessmentSummary, ApiIntelligenceDebtSummary } from "@/lib/api";
 import { STATUS_LABELS as ASSESSMENT_STATUS_LABELS } from "./assessments/values";
 import { STATUS_LABELS as FINDING_STATUS_LABELS, SEVERITY_TONE } from "./intelligence-debt/values";
@@ -18,9 +20,17 @@ export function MemberDashboard({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-muted-foreground">
-        {organizationCount} organization{organizationCount === 1 ? "" : "s"} · {openFindingCount} open finding{openFindingCount === 1 ? "" : "s"} tenant-wide
-      </p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatTile label="Organizations" value={organizationCount} icon={Building2} href="/organizations" />
+        <StatTile
+          label="Open findings (tenant-wide)"
+          value={openFindingCount}
+          icon={AlertTriangle}
+          tone={openFindingCount > 0 ? "warning" : "good"}
+          href="/intelligence-debt"
+        />
+        <StatTile label="Assigned to you" value={myFindings.length} icon={ClipboardList} tone={myFindings.length > 0 ? "warning" : "good"} />
+      </div>
 
       <Card>
         <CardHeader>
@@ -35,14 +45,14 @@ export function MemberDashboard({
               <Link
                 key={f.id}
                 href={`/intelligence-debt/${f.id}`}
-                className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm hover:bg-muted"
+                className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
               >
                 <span className="truncate">
                   <span className="mr-2 font-mono text-xs text-muted-foreground">{f.code}</span>
                   {f.title}
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
-                  <Badge variant={SEVERITY_TONE[f.severity] ?? "outline"}>{f.severity}</Badge>
+                  <StatusBadge tone={SEVERITY_TONE[f.severity] ?? "neutral"}>{f.severity}</StatusBadge>
                   <span className="text-xs text-muted-foreground">{FINDING_STATUS_LABELS[f.status] ?? f.status}</span>
                 </span>
               </Link>
@@ -66,7 +76,7 @@ export function MemberDashboard({
               <Link
                 key={a.id}
                 href={`/assessments/${a.id}`}
-                className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm hover:bg-muted"
+                className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
               >
                 <span>{a.organizationName ?? "Assessment"}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

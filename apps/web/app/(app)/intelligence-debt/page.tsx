@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { AlertTriangle, ClipboardCheck, ShieldCheck, Wrench } from "lucide-react";
 import { verifySession } from "@/lib/dal";
 import { getApiAccessToken } from "@/lib/auth-token";
 import {
@@ -8,11 +9,14 @@ import {
   listIntelligenceDebtFindings,
   createIntelligenceDebtFinding,
 } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { ADMIN_TIER_ROLES } from "../members/roles";
 import { CreateFindingForm, type CreateFindingState } from "./create-finding-form";
-import { CATEGORY_LABELS, STATUS_LABELS, SEVERITY_TONE } from "./values";
+import { CATEGORY_LABELS, STATUS_LABELS, SEVERITY_TONE, FINDING_STATUS_TONE, SEVERITIES } from "./values";
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -23,8 +27,13 @@ function Placeholder({ title, children }: { title: string; children: React.React
   );
 }
 
-export default async function IntelligenceDebtPage() {
+export default async function IntelligenceDebtPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ severity?: string }>;
+}) {
   await verifySession();
+  const { severity: severityFilter } = await searchParams;
 
   const accessToken = await getApiAccessToken();
   if (!accessToken) {
@@ -96,43 +105,34 @@ export default async function IntelligenceDebtPage() {
     return { error: null };
   }
 
-  const findings = findingsResult.ok ? findingsResult.data : [];
-  const openFindings = findings.filter((f) => f.status !== "Validated" && f.status !== "Rejected");
-  const summary = {
-    open: openFindings.length,
-    critical: openFindings.filter((f) => f.severity === "Critical").length,
-    high: openFindings.filter((f) => f.severity === "High").length,
-    remediation: findings.filter((f) => f.status === "Remediation").length,
-    awaitingValidation: findings.filter((f) => f.status === "Validation").length,
-    validated: findings.filter((f) => f.status === "Validated").length,
-  };
+  const allFindings = findingsResult.ok ? findingsResult.data : [];
+  const openFindings = allFindings.filter((f) => f.status !== "Validated" && f.status !== "Rejected");
+  const detectedCount = allFindings.filter((f) => f.status === "Detected").length;
+  const criticalOpen = openFindings.filter((f) => f.severity === "Critical").length;
+  const remediationCount = allFindings.filter((f) => f.status === "Remediation").length;
+  const validatedCount = allFindings.filter((f) => f.status === "Validated").length;
+
+  const findings = severityFilter ? allFindings.filter((f) => f.severity === severityFilter) : allFindings;
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div>
         <h1 className="text-2xl font-semibold">Intelligence Debt</h1>
         <p className="text-sm text-muted-foreground">
-          Identify, prioritize, remediate, and validate organizational fragmentation in{" "}
-          <Badge variant="outline">{tenantName}</Badge>.
+          Identify, prioritize, remediate, and validate organizational fragmentation for {tenantName}.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {[
-          ["Open findings", summary.open],
-          ["Critical", summary.critical],
-          ["High", summary.high],
-          ["In remediation", summary.remediation],
-          ["Awaiting validation", summary.awaitingValidation],
-          ["Validated", summary.validated],
-        ].map(([label, value]) => (
-          <Card key={label as string}>
-            <CardContent className="py-4">
-              <p className="text-2xl font-semibold tabular-nums">{value}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile
+          label="Open findings"
+          value={openFindings.length}
+          icon={AlertTriangle}
+          tone={criticalOpen > 0 ? "critical" : openFindings.length > 0 ? "warning" : "good"}
+        />
+        <StatTile label="Awaiting review" value={detectedCount} icon={ClipboardCheck} tone={detectedCount > 0 ? "warning" : "good"} />
+        <StatTile label="In remediation" value={remediationCount} icon={Wrench} tone={remediationCount > 0 ? "warning" : "neutral"} />
+        <StatTile label="Validated" value={validatedCount} icon={ShieldCheck} tone="good" />
       </div>
 
       <Card>
@@ -149,43 +149,75 @@ export default async function IntelligenceDebtPage() {
             <p className="text-sm text-destructive">
               GET .../intelligence-debt returned {findingsResult.status ?? "a network error"}.
             </p>
-          ) : findings.length === 0 ? (
+          ) : allFindings.length === 0 ? (
             <p className="text-sm text-muted-foreground">No findings yet — raise one below.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[720px]">
-                <div className="grid grid-cols-[1.6fr_1.2fr_0.7fr_0.9fr_0.9fr_0.8fr] gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <span>Finding</span>
-                  <span>Category</span>
-                  <span>Severity</span>
-                  <span>Status</span>
-                  <span>Owner</span>
-                  <span>Source</span>
-                </div>
-                <ul>
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-xs font-medium text-muted-foreground">Filter by severity:</span>
+                <Link
+                  href="/intelligence-debt"
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    !severityFilter ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  All ({allFindings.length})
+                </Link>
+                {SEVERITIES.map((s) => {
+                  const count = allFindings.filter((f) => f.severity === s).length;
+                  if (count === 0) return null;
+                  return (
+                    <Link
+                      key={s}
+                      href={`/intelligence-debt?severity=${s}`}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        severityFilter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      {s} ({count})
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Finding</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Severity</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Owner</TableHead>
+                    <TableHead>Source</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {findings.map((f) => (
-                    <li key={f.id}>
-                      <Link
-                        href={`/intelligence-debt/${f.id}`}
-                        className="grid grid-cols-[1.6fr_1.2fr_0.7fr_0.9fr_0.9fr_0.8fr] items-center gap-2 border-b px-3 py-2.5 text-sm hover:bg-muted"
-                      >
-                        <span className="truncate">
+                    <TableRow key={f.id} className="cursor-pointer">
+                      <TableCell className="max-w-0">
+                        <Link href={`/intelligence-debt/${f.id}`} className="block truncate hover:text-primary">
                           <span className="mr-2 font-mono text-xs text-muted-foreground">{f.code}</span>
                           {f.title}
-                        </span>
-                        <span className="truncate text-muted-foreground">{CATEGORY_LABELS[f.category] ?? f.category}</span>
-                        <span>
-                          <Badge variant={SEVERITY_TONE[f.severity] ?? "outline"}>{f.severity}</Badge>
-                        </span>
-                        <span className="text-muted-foreground">{STATUS_LABELS[f.status] ?? f.status}</span>
-                        <span className="truncate text-muted-foreground">{f.ownerName ?? "—"}</span>
-                        <span className="text-muted-foreground">{f.detectionSource}</span>
-                      </Link>
-                    </li>
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{CATEGORY_LABELS[f.category] ?? f.category}</TableCell>
+                      <TableCell>
+                        <StatusBadge tone={SEVERITY_TONE[f.severity] ?? "neutral"}>{f.severity}</StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge tone={FINDING_STATUS_TONE[f.status] ?? "neutral"} showIcon={false}>
+                          {STATUS_LABELS[f.status] ?? f.status}
+                        </StatusBadge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{f.ownerName ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{f.detectionSource}</TableCell>
+                    </TableRow>
                   ))}
-                </ul>
-              </div>
-            </div>
+                </TableBody>
+              </Table>
+            </>
           )}
 
           {organizationsResult.ok && organizationsResult.data.length > 0 ? (

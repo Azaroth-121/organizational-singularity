@@ -8,7 +8,8 @@ import {
   listIntelligenceDebtFindings,
   listInitiatives,
 } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { OiqProfileBars } from "@/components/ui/oiq-profile-bars";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BAND_TONE, formatScore } from "../../values";
 import { SEVERITY_TONE, STATUS_LABELS as FINDING_STATUS_LABELS } from "../../../intelligence-debt/values";
@@ -134,18 +135,10 @@ export default async function ExecutiveReportPage({ params }: { params: Promise<
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-            {result.dimensionScores.map((d) => (
-              <div key={d.dimensionId} className="rounded-md border p-3">
-                <p className="font-mono text-xs text-muted-foreground">{d.code}</p>
-                <p className="text-sm font-medium">{d.name}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xl font-semibold tabular-nums">{formatScore(d.score)}</span>
-                  {d.maturityBand && <Badge variant={BAND_TONE[d.maturityBand] ?? "outline"}>{d.maturityBand}</Badge>}
-                </div>
-              </div>
-            ))}
-          </div>
+          <OiqProfileBars
+            bandTone={BAND_TONE}
+            rows={result.dimensionScores.map((d) => ({ key: d.dimensionId, code: d.code, name: d.name, score: d.score, band: d.maturityBand }))}
+          />
         </CardContent>
       </Card>
 
@@ -196,7 +189,7 @@ export default async function ExecutiveReportPage({ params }: { params: Promise<
                       )}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
-                      <Badge variant={SEVERITY_TONE[f.severity] ?? "outline"}>{f.severity}</Badge>
+                      <StatusBadge tone={SEVERITY_TONE[f.severity] ?? "neutral"}>{f.severity}</StatusBadge>
                       <span className="text-xs text-muted-foreground">{FINDING_STATUS_LABELS[f.status] ?? f.status}</span>
                     </span>
                   </Link>
@@ -228,7 +221,7 @@ export default async function ExecutiveReportPage({ params }: { params: Promise<
                       {i.title}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
-                      <Badge variant={PRIORITY_TONE[i.priority] ?? "outline"}>{i.priority}</Badge>
+                      <StatusBadge tone={PRIORITY_TONE[i.priority] ?? "neutral"} showIcon={false}>{i.priority}</StatusBadge>
                       <span className="text-xs text-muted-foreground">{INITIATIVE_STATUS_LABELS[i.status] ?? i.status}</span>
                     </span>
                   </Link>

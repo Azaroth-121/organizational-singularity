@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { ListTodo, PlayCircle, PauseCircle, CheckCircle2 } from "lucide-react";
 import { verifySession } from "@/lib/dal";
 import { getApiAccessToken } from "@/lib/auth-token";
 import { getMyMemberships, listInitiatives } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { STATUS_LABELS, PRIORITY_TONE } from "./values";
+import { STATUS_LABELS, PRIORITY_TONE, INITIATIVE_STATUS_TONE } from "./values";
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -59,24 +62,15 @@ export default async function RoadmapPage() {
       <div>
         <h1 className="text-2xl font-semibold">Roadmap</h1>
         <p className="text-sm text-muted-foreground">
-          Initiatives converted from approved Intelligence Debt findings for <Badge variant="outline">{tenantName}</Badge>.
+          Initiatives converted from approved Intelligence Debt findings for {tenantName}.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          ["Active", summary.active],
-          ["In progress", summary.inProgress],
-          ["On hold", summary.onHold],
-          ["Completed", summary.completed],
-        ].map(([label, value]) => (
-          <Card key={label as string}>
-            <CardContent className="py-4">
-              <p className="text-2xl font-semibold tabular-nums">{value}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
-            </CardContent>
-          </Card>
-        ))}
+        <StatTile label="Active" value={summary.active} icon={ListTodo} />
+        <StatTile label="In progress" value={summary.inProgress} icon={PlayCircle} tone={summary.inProgress > 0 ? "warning" : "neutral"} />
+        <StatTile label="On hold" value={summary.onHold} icon={PauseCircle} tone={summary.onHold > 0 ? "serious" : "neutral"} />
+        <StatTile label="Completed" value={summary.completed} icon={CheckCircle2} tone="good" />
       </div>
 
       <Card>
@@ -94,42 +88,43 @@ export default async function RoadmapPage() {
           ) : initiatives.length === 0 ? (
             <p className="text-sm text-muted-foreground">No initiatives yet.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[720px]">
-                <div className="grid grid-cols-[1.6fr_1fr_0.7fr_0.9fr_0.9fr_0.9fr] gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <span>Initiative</span>
-                  <span>Organization</span>
-                  <span>Priority</span>
-                  <span>Status</span>
-                  <span>Owner</span>
-                  <span>Target completion</span>
-                </div>
-                <ul>
-                  {initiatives.map((i) => (
-                    <li key={i.id}>
-                      <Link
-                        href={`/roadmap/${i.id}`}
-                        className="grid grid-cols-[1.6fr_1fr_0.7fr_0.9fr_0.9fr_0.9fr] items-center gap-2 border-b px-3 py-2.5 text-sm hover:bg-muted"
-                      >
-                        <span className="truncate">
-                          <span className="mr-2 font-mono text-xs text-muted-foreground">{i.code}</span>
-                          {i.title}
-                        </span>
-                        <span className="truncate text-muted-foreground">{i.organizationName ?? "—"}</span>
-                        <span>
-                          <Badge variant={PRIORITY_TONE[i.priority] ?? "outline"}>{i.priority}</Badge>
-                        </span>
-                        <span className="text-muted-foreground">{STATUS_LABELS[i.status] ?? i.status}</span>
-                        <span className="truncate text-muted-foreground">{i.ownerName ?? "—"}</span>
-                        <span className="text-muted-foreground">
-                          {i.targetCompletionDate ? new Date(i.targetCompletionDate).toLocaleDateString() : "—"}
-                        </span>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Initiative</TableHead>
+                  <TableHead>Organization</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Owner</TableHead>
+                  <TableHead>Target completion</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {initiatives.map((i) => (
+                  <TableRow key={i.id}>
+                    <TableCell className="max-w-0">
+                      <Link href={`/roadmap/${i.id}`} className="block truncate hover:text-primary">
+                        <span className="mr-2 font-mono text-xs text-muted-foreground">{i.code}</span>
+                        {i.title}
                       </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+                    </TableCell>
+                    <TableCell className="truncate text-muted-foreground">{i.organizationName ?? "—"}</TableCell>
+                    <TableCell>
+                      <StatusBadge tone={PRIORITY_TONE[i.priority] ?? "neutral"} showIcon={false}>{i.priority}</StatusBadge>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge tone={INITIATIVE_STATUS_TONE[i.status] ?? "neutral"} showIcon={false}>
+                        {STATUS_LABELS[i.status] ?? i.status}
+                      </StatusBadge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{i.ownerName ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {i.targetCompletionDate ? new Date(i.targetCompletionDate).toLocaleDateString() : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

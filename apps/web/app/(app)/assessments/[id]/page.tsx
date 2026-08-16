@@ -13,9 +13,10 @@ import {
   cancelAssessment,
   createAssessment,
 } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { STATUS_LABELS, BAND_TONE, formatScore } from "../values";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { OiqProfileBars } from "@/components/ui/oiq-profile-bars";
+import { STATUS_LABELS, BAND_TONE, ASSESSMENT_STATUS_TONE, formatScore } from "../values";
 import { AssessmentWizard, type FlatQuestion } from "./assessment-wizard";
 import { CancelAssessmentButton, type CancelAssessmentState } from "./cancel-assessment-button";
 import { ReassessButton, type ReassessState } from "./reassess-button";
@@ -165,7 +166,9 @@ export default async function AssessmentDetailPage({ params }: { params: Promise
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold">{assessment.organizationName ?? "Assessment"}</h1>
-          <Badge variant="outline">{STATUS_LABELS[assessment.status] ?? assessment.status}</Badge>
+          <StatusBadge tone={ASSESSMENT_STATUS_TONE[assessment.status] ?? "neutral"} showIcon={false}>
+            {STATUS_LABELS[assessment.status] ?? assessment.status}
+          </StatusBadge>
         </div>
         <p className="text-sm text-muted-foreground">{assessment.frameworkVersionLabel}</p>
         {(assessment.supersedesAssessmentId || assessment.supersededByAssessmentId) && (
@@ -265,7 +268,9 @@ async function LineageSection({
                 </span>
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
                   {formatScore(entry.compositeAverage)}
-                  <Badge variant="outline">{STATUS_LABELS[entry.status] ?? entry.status}</Badge>
+                  <StatusBadge tone={ASSESSMENT_STATUS_TONE[entry.status] ?? "neutral"} showIcon={false}>
+                    {STATUS_LABELS[entry.status] ?? entry.status}
+                  </StatusBadge>
                 </span>
               </Link>
             </li>
@@ -312,18 +317,10 @@ async function AssessmentResultView({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-            {result.dimensionScores.map((d) => (
-              <div key={d.dimensionId} className="rounded-md border p-3">
-                <p className="font-mono text-xs text-muted-foreground">{d.code}</p>
-                <p className="text-sm font-medium">{d.name}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xl font-semibold tabular-nums">{formatScore(d.score)}</span>
-                  {d.maturityBand && <Badge variant={BAND_TONE[d.maturityBand] ?? "outline"}>{d.maturityBand}</Badge>}
-                </div>
-              </div>
-            ))}
-          </div>
+          <OiqProfileBars
+            bandTone={BAND_TONE}
+            rows={result.dimensionScores.map((d) => ({ key: d.dimensionId, code: d.code, name: d.name, score: d.score, band: d.maturityBand }))}
+          />
         </CardContent>
       </Card>
 

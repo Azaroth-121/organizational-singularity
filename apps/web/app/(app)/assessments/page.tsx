@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { getApiAccessToken } from "@/lib/auth-token";
 import { getMyMemberships, listOrganizations, listAssessments, createAssessment } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { STATUS_LABELS } from "./values";
+import { STATUS_LABELS, ASSESSMENT_STATUS_TONE } from "./values";
 import { CreateAssessmentForm, type CreateAssessmentState } from "./create-assessment-form";
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
@@ -78,7 +79,7 @@ export default async function AssessmentsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Assessments</h1>
         <p className="text-sm text-muted-foreground">
-          OIQ assessments for <Badge variant="outline">{tenantName}</Badge>.
+          OIQ assessments for {tenantName}.
         </p>
       </div>
 
@@ -95,33 +96,36 @@ export default async function AssessmentsPage() {
           ) : assessments.length === 0 ? (
             <p className="text-sm text-muted-foreground">No assessments yet — start one below.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[640px]">
-                <div className="grid grid-cols-[1.4fr_1fr_0.9fr_0.8fr_0.9fr] gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <span>Organization</span>
-                  <span>Framework</span>
-                  <span>Status</span>
-                  <span>Progress</span>
-                  <span>Started</span>
-                </div>
-                <ul>
-                  {assessments.map((a) => (
-                    <li key={a.id}>
-                      <Link
-                        href={`/assessments/${a.id}`}
-                        className="grid grid-cols-[1.4fr_1fr_0.9fr_0.8fr_0.9fr] items-center gap-2 border-b px-3 py-2.5 text-sm hover:bg-muted"
-                      >
-                        <span className="truncate">{a.organizationName ?? "—"}</span>
-                        <span className="truncate text-muted-foreground">{a.frameworkVersionLabel}</span>
-                        <span className="text-muted-foreground">{STATUS_LABELS[a.status] ?? a.status}</span>
-                        <span className="tabular-nums text-muted-foreground">{a.answeredCount}/{a.totalCount}</span>
-                        <span className="text-muted-foreground">{new Date(a.createdAtUtc).toLocaleDateString()}</span>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Organization</TableHead>
+                  <TableHead>Framework</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Progress</TableHead>
+                  <TableHead>Started</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {assessments.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell className="max-w-0">
+                      <Link href={`/assessments/${a.id}`} className="block truncate hover:text-primary">
+                        {a.organizationName ?? "—"}
                       </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+                    </TableCell>
+                    <TableCell className="truncate text-muted-foreground">{a.frameworkVersionLabel}</TableCell>
+                    <TableCell>
+                      <StatusBadge tone={ASSESSMENT_STATUS_TONE[a.status] ?? "neutral"} showIcon={false}>
+                        {STATUS_LABELS[a.status] ?? a.status}
+                      </StatusBadge>
+                    </TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{a.answeredCount}/{a.totalCount}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(a.createdAtUtc).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
 
           {organizationsResult.ok && organizationsResult.data.length > 0 ? (

@@ -18,9 +18,11 @@ import {
   createInitiative,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ADMIN_TIER_ROLES } from "../../members/roles";
-import { CATEGORY_LABELS, STATUS_LABELS, SEVERITY_TONE, ALLOWED_TRANSITIONS } from "../values";
+import { CATEGORY_LABELS, STATUS_LABELS, SEVERITY_TONE, FINDING_STATUS_TONE, ALLOWED_TRANSITIONS } from "../values";
 import { TransitionActions, type TransitionState } from "./transition-actions";
 import { ReviewPanel, type ReviewState } from "./review-panel";
 import { EvidenceForm, type EvidenceFormState } from "./evidence-form";
@@ -300,13 +302,23 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           <h1 className="text-2xl font-semibold">{finding.title}</h1>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Badge variant={SEVERITY_TONE[finding.severity] ?? "outline"}>{finding.severity}</Badge>
-          <Badge variant="outline">{STATUS_LABELS[finding.status] ?? finding.status}</Badge>
+          <StatusBadge tone={SEVERITY_TONE[finding.severity] ?? "neutral"}>{finding.severity}</StatusBadge>
+          <StatusBadge tone={FINDING_STATUS_TONE[finding.status] ?? "neutral"} showIcon={false}>
+            {STATUS_LABELS[finding.status] ?? finding.status}
+          </StatusBadge>
           <Badge variant="outline">{CATEGORY_LABELS[finding.category] ?? finding.category}</Badge>
           <span className="text-xs text-muted-foreground">via {finding.detectionSource}</span>
         </div>
       </div>
 
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="evidence">Evidence &amp; Roadmap</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="flex flex-col gap-6 pt-4">
       {isAdminTier && (
         <Card>
           <CardHeader>
@@ -409,7 +421,9 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           </CardContent>
         </Card>
       </div>
+        </TabsContent>
 
+        <TabsContent value="evidence" className="flex flex-col gap-6 pt-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Evidence</CardTitle>
@@ -516,7 +530,9 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           </CardContent>
         </Card>
       )}
+        </TabsContent>
 
+        <TabsContent value="history" className="pt-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Audit history</CardTitle>
@@ -546,6 +562,8 @@ export default async function IntelligenceDebtDetailPage({ params }: { params: P
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

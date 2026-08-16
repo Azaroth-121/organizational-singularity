@@ -10,7 +10,10 @@ import {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { formatScore } from "../../values";
+import { StatTile } from "@/components/ui/stat-tile";
+import { OiqProfileBars } from "@/components/ui/oiq-profile-bars";
+import { formatScore, BAND_TONE } from "../../values";
+import { Gauge, ListChecks } from "lucide-react";
 
 const NON_OPEN_FINDING_STATUSES = new Set(["Rejected", "Validated"]);
 
@@ -29,15 +32,18 @@ function Delta({ current, previous }: { current: number | null; previous: number
   if (Math.abs(diff) < 0.005) return <span className="text-muted-foreground">flat</span>;
   const up = diff > 0;
   return (
-    <span className={up ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
+    <span className={up ? "text-status-good" : "text-status-critical"}>
       {up ? "▲" : "▼"} {Math.abs(diff).toFixed(2)}
     </span>
   );
 }
 
 /** Hand-rolled inline sparkline -- the web app has no chart dependency, and a single
- * series per dimension doesn't justify adding one. */
-function Sparkline({ values }: { values: (number | null)[] }) {
+ * series per dimension doesn't justify adding one. Follows the dataviz mark spec: 2px
+ * line, filled endpoint marker, native-tooltip hover layer on each point (an SVG
+ * <title> is the lightest hover affordance available without adding interactivity
+ * plumbing, and satisfies "ship a hover layer by default" for a chart this small). */
+function Sparkline({ values, dates }: { values: (number | null)[]; dates: (string | null)[] }) {
   const width = 160;
   const height = 32;
   const padding = 3;
@@ -58,13 +64,22 @@ function Sparkline({ values }: { values: (number | null)[] }) {
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="text-primary">
-      <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth={1.5} />
+      <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       {values.map((v, i) => {
         if (v === null) return null;
         const x = padding + i * step;
         const y = height - padding - ((v - min) / (max - min)) * (height - padding * 2);
         const isLast = i === values.length - 1 || values.slice(i + 1).every((x2) => x2 === null);
-        return <circle key={i} cx={x} cy={y} r={isLast ? 2.5 : 1.5} fill="currentColor" />;
+        const label = `${dates[i] ? new Date(dates[i]!).toLocaleDateString() : "—"}: ${v.toFixed(2)}`;
+        return (
+          <g key={i}>
+            <circle cx={x} cy={y} r={isLast ? 3 : 1.75} fill="currentColor" />
+            {/* Larger invisible hit-area so the hover target isn't pinned to the tiny visible marker. */}
+            <circle cx={x} cy={y} r={8} fill="transparent">
+              <title>{label}</title>
+            </circle>
+          </g>
+        );
       })}
     </svg>
   );
@@ -154,15 +169,10 @@ export default async function AssessmentTrendPage({ params }: { params: Promise<
             <CardDescription>No prior assessment to compare against yet.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {(current.dimensionScores ?? []).map((d) => (
-                <div key={d.dimensionId} className="rounded-md border p-3">
-                  <p className="font-mono text-xs text-muted-foreground">{d.code}</p>
-                  <p className="text-sm font-medium">{d.name}</p>
-                  <span className="text-xl font-semibold tabular-nums">{formatScore(d.score)}</span>
-                </div>
-              ))}
-            </div>
+            <OiqProfileBars
+              bandTone={BAND_TONE}
+              rows={(current.dimensionScores ?? []).map((d) => ({ key: d.dimensionId, code: d.code, name: d.name, score: d.score, band: d.maturityBand }))}
+            />
           </CardContent>
         </Card>
       ) : (
@@ -176,15 +186,19 @@ export default async function AssessmentTrendPage({ params }: { params: Promise<
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
-                <div className="rounded-md border p-3 text-center">
-                  <p className="text-lg font-semibold tabular-nums">{detectedInCurrent}</p>
-                  <p className="text-xs text-muted-foreground">Findings detected in this assessment</p>
-                </div>
-                <div className="rounded-md border p-3 text-center">
-                  <p className="text-lg font-semibold tabular-nums">{stillOpenFromPrevious}</p>
-                  <p className="text-xs text-muted-foreground">Prior findings still open</p>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <StatTile
+                  label="Findings detected in this assessment"
+                  value={detectedInCurrent}
+                  icon={ListChecks}
+                  tone={detectedInCurrent > 0 ? "warning" : "good"}
+                />
+                <StatTile
+                  label="Prior findings still open"
+                  value={stillOpenFromPrevious}
+                  icon={Gauge}
+                  tone={(stillOpenFromPrevious ?? 0) > 0 ? "warning" : "good"}
+                />
               </div>
               <ul className="flex flex-col gap-1">
                 {(current.dimensionScores ?? []).map((d) => {
@@ -222,6 +236,7 @@ export default async function AssessmentTrendPage({ params }: { params: Promise<
                 const values = scoreableChain.map(
                   (e) => e.dimensionScores?.find((d) => d.dimensionId === dRef.dimensionId)?.score ?? null
                 );
+                const dates = scoreableChain.map((e) => e.completedAtUtc);
                 return (
                   <li key={dRef.dimensionId} className="flex items-center justify-between gap-4 rounded-md bg-muted px-3 py-2 text-sm">
                     <span className="min-w-0 truncate">
@@ -229,7 +244,7 @@ export default async function AssessmentTrendPage({ params }: { params: Promise<
                       {dRef.name}
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
-                      <Sparkline values={values} />
+                      <Sparkline values={values} dates={dates} />
                       <Badge variant="outline" className="tabular-nums">
                         {formatScore(values[values.length - 1])}
                       </Badge>
