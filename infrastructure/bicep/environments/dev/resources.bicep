@@ -6,6 +6,21 @@ param names object
 @secure()
 param postgresAdminPassword string
 
+@description('Separate from the shared location: this subscription is restricted from provisioning Postgres Flexible Server in eastus2/eastus/westus2/southcentralus/westeurope (confirmed live via az postgres flexible-server list-skus, not a code issue) -- centralus and westus3 are open. Everything else stays in the shared region.')
+param postgresLocation string = 'centralus'
+
+param deployApps bool = false
+param deployAiFeatures bool = false
+
+@description('Temporary bypass while this subscription refuses new roleAssignments/write calls (MissingSubscription error, confirmed live against Reader/Key-Vault-Secrets-Officer grants). When true, container apps pull via ACR admin credentials and read the DB connection string as a plain secret instead of Key Vault -- both role-assignment-free paths. Flip back to false once role assignments work again and redeploy to restore managed identity + Key Vault.')
+param useDirectCredentials bool = false
+
+param containerRegistryAdminUsername string = ''
+@secure()
+param containerRegistryAdminPassword string = ''
+@secure()
+param postgresConnectionStringDirect string = ''
+
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -62,7 +77,7 @@ module postgres '../../modules/postgresql-flexible.bicep' = {
   name: 'deploy-postgres'
   params: {
     name: names.postgres
-    location: location
+    location: postgresLocation
     tags: tags
     administratorLogin: 'os_admin'
     administratorPassword: postgresAdminPassword
@@ -90,7 +105,7 @@ module keyVault '../../modules/key-vault.bicep' = {
   }
 }
 
-module aiSearch '../../modules/ai-search.bicep' = {
+module aiSearch '../../modules/ai-search.bicep' = if (deployAiFeatures) {
   name: 'deploy-ai-search'
   params: {
     name: names.aiSearch
@@ -100,7 +115,7 @@ module aiSearch '../../modules/ai-search.bicep' = {
   }
 }
 
-module foundry '../../modules/foundry-resource-project.bicep' = {
+module foundry '../../modules/foundry-resource-project.bicep' = if (deployAiFeatures) {
   name: 'deploy-foundry'
   params: {
     accountName: names.foundryAccount
@@ -114,7 +129,7 @@ module foundry '../../modules/foundry-resource-project.bicep' = {
 // NOTE: image references point at a placeholder tag until the first CI build pushes a
 // real digest. Update via pipeline, not by hand, once GitHub Actions/OIDC is wired up.
 
-module webApp '../../modules/container-app.bicep' = {
+module webApp '../../modules/container-app.bicep' = if (deployApps) {
   name: 'deploy-web'
   params: {
     name: names.webApp
@@ -124,6 +139,8 @@ module webApp '../../modules/container-app.bicep' = {
     image: '${containerRegistry.outputs.loginServer}/os-web:latest'
     targetPort: 3000
     registryLoginServer: containerRegistry.outputs.loginServer
+    registryUsername: useDirectCredentials ? containerRegistryAdminUsername : ''
+    registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
     environmentVariables: [
       {
         name: 'NEXT_PUBLIC_API_BASE_URL'
@@ -133,7 +150,7 @@ module webApp '../../modules/container-app.bicep' = {
   }
 }
 
-module apiApp '../../modules/container-app.bicep' = {
+module apiApp '../../modules/container-app.bicep' = if (deployApps) {
   name: 'deploy-api'
   params: {
     name: names.apiApp
@@ -143,18 +160,26 @@ module apiApp '../../modules/container-app.bicep' = {
     image: '${containerRegistry.outputs.loginServer}/os-api:latest'
     targetPort: 8080
     registryLoginServer: containerRegistry.outputs.loginServer
+    registryUsername: useDirectCredentials ? containerRegistryAdminUsername : ''
+    registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
     environmentVariables: [
       {
         name: 'ASPNETCORE_ENVIRONMENT'
         value: 'Development'
       }
     ]
-    keyVaultSecretRefs: [
+    keyVaultSecretRefs: useDirectCredentials ? [] : [
       {
         name: 'OS_DATABASE_CONNECTION_STRING'
         keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/database-connection-string'
       }
     ]
+    plainSecrets: useDirectCredentials ? [
+      {
+        name: 'OS_DATABASE_CONNECTION_STRING'
+        value: postgresConnectionStringDirect
+      }
+    ] : []
   }
 }
 
@@ -165,7 +190,7 @@ module apiApp '../../modules/container-app.bicep' = {
 // resource group; tighten to per-resource scope before this pattern is reused for
 // prod-enterprise or prod-sovereign stamps (see docs/adr).
 
-module webAcrPull '../../modules/role-assignments.bicep' = {
+module webAcrPull '../../modules/role-assignments.bicep' = if (deployApps && !useDirectCredentials) {
   name: 'deploy-web-acrpull'
   scope: resourceGroup()
   params: {
@@ -174,7 +199,7 @@ module webAcrPull '../../modules/role-assignments.bicep' = {
   }
 }
 
-module apiAcrPull '../../modules/role-assignments.bicep' = {
+module apiAcrPull '../../modules/role-assignments.bicep' = if (deployApps && !useDirectCredentials) {
   name: 'deploy-api-acrpull'
   scope: resourceGroup()
   params: {
@@ -183,7 +208,7 @@ module apiAcrPull '../../modules/role-assignments.bicep' = {
   }
 }
 
-module apiKeyVaultAccess '../../modules/role-assignments.bicep' = {
+module apiKeyVaultAccess '../../modules/role-assignments.bicep' = if (deployApps && !useDirectCredentials) {
   name: 'deploy-api-kv-access'
   scope: resourceGroup()
   params: {
@@ -192,7 +217,7 @@ module apiKeyVaultAccess '../../modules/role-assignments.bicep' = {
   }
 }
 
-module apiStorageAccess '../../modules/role-assignments.bicep' = {
+module apiStorageAccess '../../modules/role-assignments.bicep' = if (deployApps && !useDirectCredentials) {
   name: 'deploy-api-storage-access'
   scope: resourceGroup()
   params: {
@@ -202,7 +227,7 @@ module apiStorageAccess '../../modules/role-assignments.bicep' = {
 }
 
 output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
-output webAppFqdn string = webApp.outputs.fqdn
-output apiAppFqdn string = apiApp.outputs.fqdn
+output webAppFqdn string = deployApps ? webApp.outputs.fqdn : ''
+output apiAppFqdn string = deployApps ? apiApp.outputs.fqdn : ''
 output postgresFqdn string = postgres.outputs.fullyQualifiedDomainName
 output keyVaultUri string = keyVault.outputs.vaultUri

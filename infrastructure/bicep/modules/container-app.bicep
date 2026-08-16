@@ -16,6 +16,15 @@ param environmentVariables array = []
 @description('Secret environment variables sourced from Key Vault references, e.g. [{ name: \'OS_DATABASE_CONNECTION_STRING\', keyVaultUrl: \'https://kv-os-core-dev-eus2-01.vault.azure.net/secrets/db-connection-string\', identity: \'system\' }]')
 param keyVaultSecretRefs array = []
 
+@description('Plain-value secrets, e.g. [{ name: \'OS_DATABASE_CONNECTION_STRING\', value: \'...\' }]. Only meant as a temporary bypass when the Key Vault Secrets User role assignment cannot be created yet -- prefer keyVaultSecretRefs once role assignments work again.')
+param plainSecrets array = []
+
+@description('ACR admin username -- temporary bypass for when the AcrPull role assignment cannot be created yet. Leave empty to keep pulling via the system-assigned identity (the default, correct path).')
+param registryUsername string = ''
+
+@secure()
+param registryPassword string = ''
+
 param minReplicas int = 0
 param maxReplicas int = 3
 
@@ -25,16 +34,36 @@ param memory string = '1Gi'
 @description('Resource ID of the Container Registry so the system-assigned identity can be granted AcrPull by the caller.')
 param registryLoginServer string
 
-var secrets = [for s in keyVaultSecretRefs: {
+var keyVaultSecrets = [for s in keyVaultSecretRefs: {
   name: s.name
   keyVaultUrl: s.keyVaultUrl
   identity: 'system'
 }]
 
-var secretEnvVars = [for s in keyVaultSecretRefs: {
+var plainSecretEntries = [for s in plainSecrets: {
   name: s.name
-  secretRef: s.name
+  value: s.value
 }]
+
+var registryPasswordSecret = !empty(registryUsername) ? [{
+  name: '${name}-registry-password'
+  value: registryPassword
+}] : []
+
+var secrets = concat(keyVaultSecrets, plainSecretEntries, registryPasswordSecret)
+
+var keyVaultSecretEnvVars = [for s in keyVaultSecretRefs: { name: s.name, secretRef: s.name }]
+var plainSecretEnvVars = [for s in plainSecrets: { name: s.name, secretRef: s.name }]
+var secretEnvVars = concat(keyVaultSecretEnvVars, plainSecretEnvVars)
+
+var registryConfig = !empty(registryUsername) ? {
+  server: registryLoginServer
+  username: registryUsername
+  passwordSecretRef: '${name}-registry-password'
+} : {
+  server: registryLoginServer
+  identity: 'system'
+}
 
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
@@ -52,10 +81,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         transport: 'auto'
       }
       registries: [
-        {
-          server: registryLoginServer
-          identity: 'system'
-        }
+        registryConfig
       ]
       secrets: secrets
     }

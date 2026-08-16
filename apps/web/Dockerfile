@@ -5,6 +5,11 @@ RUN npm ci
 
 FROM node:20-alpine AS build
 WORKDIR /app
+# Next.js inlines any NEXT_PUBLIC_* reference at build time -- including in
+# server-only code paths, not just client bundles -- so this has to be a real
+# build arg, not just a runtime environment variable on the final container.
+ARG NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

@@ -5,10 +5,28 @@ param regionCode string = 'eus2'
 param location string = 'eastus2'
 param instance string = '01'
 
+@description('Postgres Flexible Server only -- see resources.bicep for why this is separate from the shared location.')
+param postgresLocation string = 'centralus'
+
 @secure()
 param postgresAdminPassword string
 
 param budgetContactEmails array
+
+@description('Phase 2 of the first deployment: the Container Apps reference images that must already be pushed to the registry, and a Key Vault secret that must already exist. Leave false until both are true.')
+param deployApps bool = false
+
+@description('AI Search + Foundry are scaffolded for future Prometheus/Atlas work and unused by the app today. AI Search Basic has a real idle cost; leave this false until that work actually starts.')
+param deployAiFeatures bool = false
+
+@description('Temporary bypass while this subscription refuses new roleAssignments/write calls -- see resources.bicep for detail. Flip back to false once role assignments work again.')
+param useDirectCredentials bool = false
+
+param containerRegistryAdminUsername string = ''
+@secure()
+param containerRegistryAdminPassword string = ''
+@secure()
+param postgresConnectionStringDirect string = ''
 
 var env = 'dev'
 var tags = {
@@ -69,6 +87,13 @@ module resources 'resources.bicep' = {
     tags: tags
     names: names
     postgresAdminPassword: postgresAdminPassword
+    postgresLocation: postgresLocation
+    deployApps: deployApps
+    deployAiFeatures: deployAiFeatures
+    useDirectCredentials: useDirectCredentials
+    containerRegistryAdminUsername: containerRegistryAdminUsername
+    containerRegistryAdminPassword: containerRegistryAdminPassword
+    postgresConnectionStringDirect: postgresConnectionStringDirect
   }
   dependsOn: [
     resourceGroup
