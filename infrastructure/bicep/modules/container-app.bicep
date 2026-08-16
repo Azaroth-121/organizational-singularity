@@ -34,14 +34,17 @@ param memory string = '1Gi'
 @description('Resource ID of the Container Registry so the system-assigned identity can be granted AcrPull by the caller.')
 param registryLoginServer string
 
+// Container Apps secret names must be lowercase alphanumeric/hyphens -- the env var names
+// they back (e.g. AUTH_MICROSOFT_ENTRA_ID_SECRET) don't meet that, so derive a valid secret
+// name separately and keep the real env var name on the `env` entry that references it.
 var keyVaultSecrets = [for s in keyVaultSecretRefs: {
-  name: s.name
+  name: toLower(replace(s.name, '_', '-'))
   keyVaultUrl: s.keyVaultUrl
   identity: 'system'
 }]
 
 var plainSecretEntries = [for s in plainSecrets: {
-  name: s.name
+  name: toLower(replace(s.name, '_', '-'))
   value: s.value
 }]
 
@@ -52,8 +55,8 @@ var registryPasswordSecret = !empty(registryUsername) ? [{
 
 var secrets = concat(keyVaultSecrets, plainSecretEntries, registryPasswordSecret)
 
-var keyVaultSecretEnvVars = [for s in keyVaultSecretRefs: { name: s.name, secretRef: s.name }]
-var plainSecretEnvVars = [for s in plainSecrets: { name: s.name, secretRef: s.name }]
+var keyVaultSecretEnvVars = [for s in keyVaultSecretRefs: { name: s.name, secretRef: toLower(replace(s.name, '_', '-')) }]
+var plainSecretEnvVars = [for s in plainSecrets: { name: s.name, secretRef: toLower(replace(s.name, '_', '-')) }]
 var secretEnvVars = concat(keyVaultSecretEnvVars, plainSecretEnvVars)
 
 var registryConfig = !empty(registryUsername) ? {
