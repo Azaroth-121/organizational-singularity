@@ -21,6 +21,15 @@ param containerRegistryAdminPassword string = ''
 @secure()
 param postgresConnectionStringDirect string = ''
 
+@description('Same Entra app registration already used for local dev -- client ID and issuer are not secret.')
+param authMicrosoftEntraIdId string = ''
+param authMicrosoftEntraIdIssuer string = ''
+param entraApiScope string = ''
+@secure()
+param authMicrosoftEntraIdSecret string = ''
+@secure()
+param authSecretValue string = ''
+
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -145,6 +154,36 @@ module webApp '../../modules/container-app.bicep' = if (deployApps) {
       {
         name: 'NEXT_PUBLIC_API_BASE_URL'
         value: 'https://${names.apiApp}.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'AUTH_URL'
+        value: 'https://${names.webApp}.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'AUTH_TRUST_HOST'
+        value: 'true'
+      }
+      {
+        name: 'AUTH_MICROSOFT_ENTRA_ID_ID'
+        value: authMicrosoftEntraIdId
+      }
+      {
+        name: 'AUTH_MICROSOFT_ENTRA_ID_ISSUER'
+        value: authMicrosoftEntraIdIssuer
+      }
+      {
+        name: 'ENTRA_API_SCOPE'
+        value: entraApiScope
+      }
+    ]
+    plainSecrets: [
+      {
+        name: 'AUTH_MICROSOFT_ENTRA_ID_SECRET'
+        value: authMicrosoftEntraIdSecret
+      }
+      {
+        name: 'AUTH_SECRET'
+        value: authSecretValue
       }
     ]
   }

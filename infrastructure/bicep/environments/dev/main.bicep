@@ -28,6 +28,14 @@ param containerRegistryAdminPassword string = ''
 @secure()
 param postgresConnectionStringDirect string = ''
 
+param authMicrosoftEntraIdId string = ''
+param authMicrosoftEntraIdIssuer string = ''
+param entraApiScope string = ''
+@secure()
+param authMicrosoftEntraIdSecret string = ''
+@secure()
+param authSecretValue string = ''
+
 var env = 'dev'
 var tags = {
   application: 'organizational-singularity'
@@ -94,6 +102,11 @@ module resources 'resources.bicep' = {
     containerRegistryAdminUsername: containerRegistryAdminUsername
     containerRegistryAdminPassword: containerRegistryAdminPassword
     postgresConnectionStringDirect: postgresConnectionStringDirect
+    authMicrosoftEntraIdId: authMicrosoftEntraIdId
+    authMicrosoftEntraIdIssuer: authMicrosoftEntraIdIssuer
+    entraApiScope: entraApiScope
+    authMicrosoftEntraIdSecret: authMicrosoftEntraIdSecret
+    authSecretValue: authSecretValue
   }
   dependsOn: [
     resourceGroup
