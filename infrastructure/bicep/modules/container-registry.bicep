@@ -6,6 +6,9 @@ param tags object = {}
 @allowed(['Basic', 'Standard', 'Premium'])
 param sku string = 'Basic'
 
+@description('Off by default (managed identity + AcrPull is the correct design). Only needed while the direct-credentials bypass is active -- otherwise every redeploy silently resets an out-of-band `az acr update --admin-enabled true` back to false, invalidating credentials mid-deployment.')
+param adminUserEnabled bool = false
+
 resource registry 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
   name: name
   location: location
@@ -14,7 +17,7 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = 
     name: sku
   }
   properties: {
-    adminUserEnabled: false
+    adminUserEnabled: adminUserEnabled
   }
 }
 

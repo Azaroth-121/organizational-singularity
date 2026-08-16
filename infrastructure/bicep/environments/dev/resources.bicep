@@ -60,6 +60,7 @@ module containerRegistry '../../modules/container-registry.bicep' = {
     location: location
     tags: tags
     sku: 'Basic'
+    adminUserEnabled: useDirectCredentials
   }
 }
 
