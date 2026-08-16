@@ -6,7 +6,7 @@ Target: 5-10 minutes, screen recording + narration. Not a polished demo reel —
 
 1. **Cold open (30s).** One sentence on what this is: "Organizational Singularity, the internal platform SoverAIgn is building to run its own OIQ methodology on itself. This is the first time it's actually done that, end to end."
 
-2. **Sign in (30s).** Show real Entra ID sign-in — this isn't a mocked login.
+2. **Sign in (30s).** Open `https://ca-os-web-dev-eus2-01.delightfulcliff-8cc5b938.eastus2.azurecontainerapps.io` — the real, live Azure URL, not localhost — and sign in with real Entra ID. Worth saying out loud: this is genuinely deployed, not local dev.
 
 3. **The organization (30s).** Open SoverAIgn Solutions. Note it's a real org record, not seed/demo data.
 
