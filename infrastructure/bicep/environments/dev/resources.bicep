@@ -204,8 +204,40 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
     registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
     environmentVariables: [
       {
+        // Was hardcoded to 'Development' -- that flips on ASP.NET Core's
+        // IsDevelopment() gate, which publicly exposed Swagger UI on the live
+        // HTTPS URL with no auth in front of it. 'Staging' is a real built-in
+        // environment name with no dev-only behavior; no appsettings.Staging.json
+        // exists, so it falls back to the base appsettings.json, same as
+        // production would. Only appsettings.Development.json carries AzureAd
+        // config, so that config is now supplied directly below instead of
+        // relying on this environment name to pull in that file.
         name: 'ASPNETCORE_ENVIRONMENT'
-        value: 'Development'
+        value: 'Staging'
+      }
+      {
+        name: 'AzureAd__Instance'
+        value: 'https://login.microsoftonline.com/'
+      }
+      {
+        // Derived from the same issuer URL already passed to the web app
+        // (https://login.microsoftonline.com/<TENANT_ID>/v2.0) rather than a
+        // second parameter carrying the same tenant ID.
+        name: 'AzureAd__TenantId'
+        value: split(authMicrosoftEntraIdIssuer, '/')[3]
+      }
+      {
+        // The API is its own, separate Entra app registration from the web
+        // app's (authMicrosoftEntraIdId is the web app's registration, used
+        // for user sign-in delegation) -- its id only otherwise appears
+        // embedded in entraApiScope ("api://<API_CLIENT_ID>/access_as_user"),
+        // which the web app already receives to request this exact scope.
+        name: 'AzureAd__ClientId'
+        value: split(entraApiScope, '/')[2]
+      }
+      {
+        name: 'AzureAd__Audience'
+        value: 'api://${split(entraApiScope, '/')[2]}'
       }
     ]
     keyVaultSecretRefs: useDirectCredentials ? [] : [
