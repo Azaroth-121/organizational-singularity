@@ -248,6 +248,10 @@ module webApp '../../modules/container-app.bicep' = if (deployApps) {
     containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
     image: '${containerRegistry.outputs.loginServer}/os-web:latest'
     targetPort: 3000
+    // minReplicas 0 (the module default) means the first request after 5 minutes idle
+    // pays a ~20s cold start; since the web app calls the API server-side, a fully cold
+    // page load chains two cold starts and reads as broken, not slow. Keep one replica warm.
+    minReplicas: 1
     registryLoginServer: containerRegistry.outputs.loginServer
     registryUsername: useDirectCredentials ? containerRegistryAdminUsername : ''
     registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
@@ -299,6 +303,8 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
     containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
     image: '${containerRegistry.outputs.loginServer}/os-api:latest'
     targetPort: 8080
+    // See the matching note on webApp above -- keep one replica warm to avoid cold starts.
+    minReplicas: 1
     registryLoginServer: containerRegistry.outputs.loginServer
     registryUsername: useDirectCredentials ? containerRegistryAdminUsername : ''
     registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
