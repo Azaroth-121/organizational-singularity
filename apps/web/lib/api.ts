@@ -783,6 +783,27 @@ export function addInitiativeDependency(
   });
 }
 
+export interface ApiAiDiagnosticsResult {
+  success: boolean;
+  outputText: string | null;
+  aiRunId: string;
+  outcome: string;
+  modelDeployment: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  latencyMs: number | null;
+  errorMessage: string | null;
+}
+
+export function pingAiGateway(
+  accessToken: string,
+  tenantId: string
+): Promise<ApiResult<ApiAiDiagnosticsResult>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/ai/diagnostics/ping`, accessToken, {
+    method: "POST",
+  });
+}
+
 export function removeInitiativeDependency(
   accessToken: string,
   tenantId: string,

@@ -1,6 +1,6 @@
 import { verifySession } from "@/lib/dal";
 import { getApiAccessToken } from "@/lib/auth-token";
-import { getMe, getMyMemberships } from "@/lib/api";
+import { getMe, getMyMemberships, pingAiGateway } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
@@ -34,6 +34,12 @@ export default async function MePage() {
   }
 
   const membershipsResult = await getMyMemberships(accessToken);
+
+  // AI gateway diagnostics (see docs/adr/0003) -- real, end-to-end proof that ModelGateway
+  // actually reaches a model in this environment, using the same server-side token this page
+  // already resolves. Only attempted if we know which tenant to ask on behalf of.
+  const primaryTenantId = membershipsResult.ok ? membershipsResult.data.memberships[0]?.tenantId : undefined;
+  const aiPingResult = primaryTenantId ? await pingAiGateway(accessToken, primaryTenantId) : null;
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
@@ -94,6 +100,51 @@ export default async function MePage() {
                 </li>
               ))}
             </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle>AI gateway</CardTitle>
+          <CardDescription>Returned by POST /ai/diagnostics/ping (see docs/adr/0003)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!primaryTenantId ? (
+            <p className="text-sm text-muted-foreground">No tenant to diagnose against yet.</p>
+          ) : !aiPingResult?.ok ? (
+            <p className="text-sm text-destructive">
+              POST /ai/diagnostics/ping returned {aiPingResult?.status ?? "a network error"}
+              {aiPingResult && !aiPingResult.ok && aiPingResult.message ? `: ${aiPingResult.message}` : ""}
+            </p>
+          ) : (
+            <dl className="grid grid-cols-2 gap-y-3 text-sm">
+              <dt className="text-muted-foreground">Outcome</dt>
+              <dd className="font-medium">{aiPingResult.data.outcome}</dd>
+
+              <dt className="text-muted-foreground">Model</dt>
+              <dd className="font-medium">{aiPingResult.data.modelDeployment}</dd>
+
+              <dt className="text-muted-foreground">Output</dt>
+              <dd className="font-medium">{aiPingResult.data.outputText ?? "—"}</dd>
+
+              <dt className="text-muted-foreground">Tokens (in / out)</dt>
+              <dd className="font-medium">
+                {aiPingResult.data.inputTokens ?? "—"} / {aiPingResult.data.outputTokens ?? "—"}
+              </dd>
+
+              <dt className="text-muted-foreground">Latency</dt>
+              <dd className="font-medium">
+                {aiPingResult.data.latencyMs !== null ? `${aiPingResult.data.latencyMs} ms` : "—"}
+              </dd>
+
+              {aiPingResult.data.errorMessage && (
+                <>
+                  <dt className="text-muted-foreground">Error</dt>
+                  <dd className="font-medium text-destructive">{aiPingResult.data.errorMessage}</dd>
+                </>
+              )}
+            </dl>
           )}
         </CardContent>
       </Card>
