@@ -135,6 +135,58 @@ module foundry '../../modules/foundry-resource-project.bicep' = if (deployAiFeat
   }
 }
 
+// API-key auth (see ADR 0003 -- same roleAssignments-restriction bypass as
+// useDirectCredentials elsewhere in this file). Only resolved when actually deploying AI
+// features; conditional 'existing' avoids referencing a resource that was never deployed.
+resource foundryAccountExisting 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = if (deployAiFeatures) {
+  name: names.foundryAccount
+  dependsOn: [
+    foundry
+  ]
+}
+
+var aiEnvironmentVariables = deployAiFeatures ? [
+  {
+    name: 'Foundry__Endpoint'
+    value: foundry.outputs.accountEndpoint
+  }
+  {
+    name: 'Foundry__ApiVersion'
+    value: '2025-06-01'
+  }
+  {
+    name: 'Foundry__ClassifyDocumentDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+  {
+    name: 'Foundry__SummarizeEvidenceDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+  {
+    name: 'Foundry__DraftFindingDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+  {
+    name: 'Foundry__RecommendPrioritiesDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+  {
+    name: 'Foundry__AnswerExecutiveQuestionDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+  {
+    name: 'Foundry__GenerateReportNarrativeDeployment'
+    value: foundry.outputs.chatDeploymentName
+  }
+] : []
+
+var aiPlainSecrets = deployAiFeatures ? [
+  {
+    name: 'Foundry__ApiKey'
+    value: foundryAccountExisting.listKeys().key1
+  }
+] : []
+
 // --- Web and API container apps ---
 // NOTE: image references point at a placeholder tag until the first CI build pushes a
 // real digest. Update via pipeline, not by hand, once GitHub Actions/OIDC is wired up.
@@ -202,7 +254,7 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
     registryLoginServer: containerRegistry.outputs.loginServer
     registryUsername: useDirectCredentials ? containerRegistryAdminUsername : ''
     registryPassword: useDirectCredentials ? containerRegistryAdminPassword : ''
-    environmentVariables: [
+    environmentVariables: concat([
       {
         // Was hardcoded to 'Development' -- that flips on ASP.NET Core's
         // IsDevelopment() gate, which publicly exposed Swagger UI on the live
@@ -239,19 +291,19 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
         name: 'AzureAd__Audience'
         value: 'api://${split(entraApiScope, '/')[2]}'
       }
-    ]
+    ], aiEnvironmentVariables)
     keyVaultSecretRefs: useDirectCredentials ? [] : [
       {
         name: 'OS_DATABASE_CONNECTION_STRING'
         keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/database-connection-string'
       }
     ]
-    plainSecrets: useDirectCredentials ? [
+    plainSecrets: concat(aiPlainSecrets, useDirectCredentials ? [
       {
         name: 'OS_DATABASE_CONNECTION_STRING'
         value: postgresConnectionStringDirect
       }
-    ] : []
+    ] : [])
   }
 }
 

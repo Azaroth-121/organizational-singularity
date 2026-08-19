@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OrganizationalSingularity.Domain.AiOrchestration;
 using OrganizationalSingularity.Domain.Assessments;
 using OrganizationalSingularity.Domain.Audit;
 using OrganizationalSingularity.Domain.Framework;
@@ -43,6 +44,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<InitiativeDependency> InitiativeDependencies => Set<InitiativeDependency>();
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
+    public DbSet<AiRun> AiRuns => Set<AiRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -420,6 +423,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(x => x.TenantId);
             e.HasIndex(x => new { x.EntityType, x.EntityId });
+        });
+
+        modelBuilder.Entity<AiRun>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasIndex(x => new { x.TenantId, x.Operation });
         });
     }
 }

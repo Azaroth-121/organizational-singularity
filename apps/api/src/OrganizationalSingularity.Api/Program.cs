@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
 using OrganizationalSingularity.Api.Endpoints;
+using OrganizationalSingularity.Infrastructure.AiOrchestration;
 using OrganizationalSingularity.Infrastructure.Identity;
 using OrganizationalSingularity.Infrastructure.Persistence;
 
@@ -26,6 +27,8 @@ var connectionString = builder.Configuration["OS_DATABASE_CONNECTION_STRING"]
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<UserProvisioningService>();
+builder.Services.Configure<ModelGatewayOptions>(builder.Configuration.GetSection(ModelGatewayOptions.SectionName));
+builder.Services.AddScoped<ModelGateway>();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres");
@@ -143,6 +146,7 @@ app.MapInvitationEndpoints();
 app.MapIntelligenceDebtEndpoints();
 app.MapAssessmentEndpoints();
 app.MapInitiativeEndpoints();
+app.MapAiDiagnosticsEndpoints();
 
 app.Run();
 
