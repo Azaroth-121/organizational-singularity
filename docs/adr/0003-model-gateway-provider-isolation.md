@@ -63,6 +63,22 @@ findings are still gated at `Status = Detected` by `IntelligenceDebtStateMachine
 here changes that. This ADR only governs how a call reaches a model, not what a module is
 allowed to do with the result.
 
+## Update — 2026-08-20, same day
+The first real deployment goes further than this ADR originally anticipated: rather than
+deploying the Foundry account/project (`foundry-resource-project.bicep`, built and ready but
+not yet applied) and using its own generated API key, the gateway points directly at OpenAI's
+own platform API (`https://api.openai.com/v1`) using a real OpenAI platform key Kurt
+generated for this project specifically -- distinct from Prometheus's own separate key, one
+key per product, matching how this codebase already treats every other project-scoped
+secret. This is a strictly smaller version of the same decision already made above: still API
+key over managed identity, still the one `ModelGateway` class, still one `AiRun` row per
+call. It just skips provisioning an Azure Cognitive Services resource at all for now, since
+nothing about `ModelGateway`'s contract (`InvokeAsync`, `GatewayResult`, `AiRunOutcome`)
+depends on which OpenAI-API-shaped endpoint answers it. `resources.bicep` supports both
+paths (`openAiApiKeyDirect` directly, or the Foundry-derived key when `deployAiFeatures` is
+also true) so moving to a real Foundry deployment later is a parameter change, not a code
+change.
+
 ## Consequences
 - Adding a second model provider later (Anthropic, a different Azure deployment) means a new
   branch inside `ModelGateway`, not a new call site anywhere else in the codebase — the

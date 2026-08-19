@@ -36,6 +36,11 @@ param authMicrosoftEntraIdSecret string = ''
 @secure()
 param authSecretValue string = ''
 
+@description('A real OpenAI platform API key (platform.openai.com), scoped to this project specifically -- distinct from any other projects own key. When set, ModelGateway talks directly to https://api.openai.com/v1 instead of a deployed Foundry account (see ADR 0003, 2026-08-20 update). Leave empty to use the Foundry-derived key instead once deployAiFeatures=true.')
+@secure()
+param openAiApiKeyDirect string = ''
+param openAiModelName string = 'gpt-5.4-mini'
+
 var env = 'dev'
 var tags = {
   application: 'organizational-singularity'
@@ -107,6 +112,8 @@ module resources 'resources.bicep' = {
     entraApiScope: entraApiScope
     authMicrosoftEntraIdSecret: authMicrosoftEntraIdSecret
     authSecretValue: authSecretValue
+    openAiApiKeyDirect: openAiApiKeyDirect
+    openAiModelName: openAiModelName
   }
   dependsOn: [
     resourceGroup

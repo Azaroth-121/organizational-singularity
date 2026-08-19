@@ -30,6 +30,11 @@ param authMicrosoftEntraIdSecret string = ''
 @secure()
 param authSecretValue string = ''
 
+@description('See main.bicep and ADR 0003 (2026-08-20 update). Takes priority over the Foundry-derived key when both are set.')
+@secure()
+param openAiApiKeyDirect string = ''
+param openAiModelName string = 'gpt-5.4-mini'
+
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -145,7 +150,45 @@ resource foundryAccountExisting 'Microsoft.CognitiveServices/accounts@2025-06-01
   ]
 }
 
-var aiEnvironmentVariables = deployAiFeatures ? [
+// Direct OpenAI (ADR 0003, 2026-08-20 update) takes priority when a key is supplied --
+// today's actual deployment path, skipping the Foundry account entirely. Falls back to the
+// Foundry-derived endpoint/deployment when deployAiFeatures is true and no direct key is set.
+var useDirectOpenAi = !empty(openAiApiKeyDirect)
+
+var aiEnvironmentVariables = useDirectOpenAi ? [
+  {
+    name: 'Foundry__Endpoint'
+    value: 'https://api.openai.com/v1'
+  }
+  {
+    name: 'Foundry__ApiVersion'
+    value: 'v1'
+  }
+  {
+    name: 'Foundry__ClassifyDocumentDeployment'
+    value: openAiModelName
+  }
+  {
+    name: 'Foundry__SummarizeEvidenceDeployment'
+    value: openAiModelName
+  }
+  {
+    name: 'Foundry__DraftFindingDeployment'
+    value: openAiModelName
+  }
+  {
+    name: 'Foundry__RecommendPrioritiesDeployment'
+    value: openAiModelName
+  }
+  {
+    name: 'Foundry__AnswerExecutiveQuestionDeployment'
+    value: openAiModelName
+  }
+  {
+    name: 'Foundry__GenerateReportNarrativeDeployment'
+    value: openAiModelName
+  }
+] : (deployAiFeatures ? [
   {
     name: 'Foundry__Endpoint'
     value: foundry.outputs.accountEndpoint
@@ -178,14 +221,19 @@ var aiEnvironmentVariables = deployAiFeatures ? [
     name: 'Foundry__GenerateReportNarrativeDeployment'
     value: foundry.outputs.chatDeploymentName
   }
-] : []
+] : [])
 
-var aiPlainSecrets = deployAiFeatures ? [
+var aiPlainSecrets = useDirectOpenAi ? [
+  {
+    name: 'Foundry__ApiKey'
+    value: openAiApiKeyDirect
+  }
+] : (deployAiFeatures ? [
   {
     name: 'Foundry__ApiKey'
     value: foundryAccountExisting.listKeys().key1
   }
-] : []
+] : [])
 
 // --- Web and API container apps ---
 // NOTE: image references point at a placeholder tag until the first CI build pushes a
