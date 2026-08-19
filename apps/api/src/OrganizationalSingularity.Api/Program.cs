@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
 using OrganizationalSingularity.Api.Endpoints;
 using OrganizationalSingularity.Infrastructure.AiOrchestration;
+using OrganizationalSingularity.Infrastructure.Documents;
 using OrganizationalSingularity.Infrastructure.Identity;
 using OrganizationalSingularity.Infrastructure.Persistence;
 
@@ -29,6 +30,8 @@ builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connect
 builder.Services.AddScoped<UserProvisioningService>();
 builder.Services.Configure<ModelGatewayOptions>(builder.Configuration.GetSection(ModelGatewayOptions.SectionName));
 builder.Services.AddScoped<ModelGateway>();
+builder.Services.Configure<DocumentStorageOptions>(builder.Configuration.GetSection(DocumentStorageOptions.SectionName));
+builder.Services.AddScoped<BlobDocumentStorage>();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres");
@@ -147,6 +150,7 @@ app.MapIntelligenceDebtEndpoints();
 app.MapAssessmentEndpoints();
 app.MapInitiativeEndpoints();
 app.MapAiDiagnosticsEndpoints();
+app.MapDocumentEndpoints();
 
 app.Run();
 

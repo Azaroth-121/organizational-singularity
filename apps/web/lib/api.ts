@@ -804,6 +804,22 @@ export function pingAiGateway(
   });
 }
 
+export interface ApiDocumentDiagnosticsResult {
+  success: boolean;
+  documentId: string;
+  blobName: string | null;
+  error: string | null;
+}
+
+export function pingDocumentStorage(
+  accessToken: string,
+  tenantId: string
+): Promise<ApiResult<ApiDocumentDiagnosticsResult>> {
+  return apiFetch(`/api/v1/tenants/${tenantId}/documents/diagnostics/ping`, accessToken, {
+    method: "POST",
+  });
+}
+
 export function removeInitiativeDependency(
   accessToken: string,
   tenantId: string,

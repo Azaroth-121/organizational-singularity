@@ -235,6 +235,24 @@ var aiPlainSecrets = useDirectOpenAi ? [
   }
 ] : [])
 
+// Account-key auth for blob storage (ADR 0004 -- same roleAssignments-restriction bypass as
+// useDirectCredentials elsewhere in this file). Conditional 'existing' avoids exposing the
+// key as a module output. Storage itself is always deployed, unlike the Foundry account
+// above, so this only needs to be conditional on the auth path, not on a feature flag.
+resource storageAccountExisting 'Microsoft.Storage/storageAccounts@2023-05-01' existing = if (useDirectCredentials) {
+  name: names.storage
+  dependsOn: [
+    storage
+  ]
+}
+
+var storagePlainSecrets = useDirectCredentials ? [
+  {
+    name: 'Storage__ConnectionString'
+    value: 'DefaultEndpointsProtocol=https;AccountName=${names.storage};AccountKey=${storageAccountExisting.listKeys().keys[0].value};EndpointSuffix=core.windows.net'
+  }
+] : []
+
 // --- Web and API container apps ---
 // NOTE: image references point at a placeholder tag until the first CI build pushes a
 // real digest. Update via pipeline, not by hand, once GitHub Actions/OIDC is wired up.
@@ -345,6 +363,16 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
         name: 'AzureAd__Audience'
         value: 'api://${split(entraApiScope, '/')[2]}'
       }
+      {
+        // Read regardless of auth path -- used by BlobDocumentStorage's DefaultAzureCredential
+        // fallback whenever Storage__ConnectionString isn't set (see ADR 0004).
+        name: 'Storage__AccountUrl'
+        value: storage.outputs.primaryBlobEndpoint
+      }
+      {
+        name: 'Storage__ContainerName'
+        value: 'documents'
+      }
     ], aiEnvironmentVariables)
     keyVaultSecretRefs: useDirectCredentials ? [] : [
       {
@@ -352,7 +380,7 @@ module apiApp '../../modules/container-app.bicep' = if (deployApps) {
         keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/database-connection-string'
       }
     ]
-    plainSecrets: concat(aiPlainSecrets, useDirectCredentials ? [
+    plainSecrets: concat(aiPlainSecrets, storagePlainSecrets, useDirectCredentials ? [
       {
         name: 'OS_DATABASE_CONNECTION_STRING'
         value: postgresConnectionStringDirect

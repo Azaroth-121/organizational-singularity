@@ -1,6 +1,6 @@
 import { verifySession } from "@/lib/dal";
 import { getApiAccessToken } from "@/lib/auth-token";
-import { getMe, getMyMemberships, pingAiGateway } from "@/lib/api";
+import { getMe, getMyMemberships, pingAiGateway, pingDocumentStorage } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 function Placeholder({ title, children }: { title: string; children: React.ReactNode }) {
@@ -40,6 +40,11 @@ export default async function MePage() {
   // already resolves. Only attempted if we know which tenant to ask on behalf of.
   const primaryTenantId = membershipsResult.ok ? membershipsResult.data.memberships[0]?.tenantId : undefined;
   const aiPingResult = primaryTenantId ? await pingAiGateway(accessToken, primaryTenantId) : null;
+
+  // Document storage diagnostics (see docs/adr/0004) -- same reasoning as the AI gateway
+  // ping above: no upload UI exists yet, so this is the only way to prove real blob storage
+  // connectivity against the live Azure deployment.
+  const documentPingResult = primaryTenantId ? await pingDocumentStorage(accessToken, primaryTenantId) : null;
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
@@ -144,6 +149,38 @@ export default async function MePage() {
                   <dd className="font-medium text-destructive">{aiPingResult.data.errorMessage}</dd>
                 </>
               )}
+            </dl>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle>Document storage</CardTitle>
+          <CardDescription>Returned by POST /documents/diagnostics/ping (see docs/adr/0004)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!primaryTenantId ? (
+            <p className="text-sm text-muted-foreground">No tenant to diagnose against yet.</p>
+          ) : !documentPingResult?.ok ? (
+            <p className="text-sm text-destructive">
+              POST /documents/diagnostics/ping returned {documentPingResult?.status ?? "a network error"}
+              {documentPingResult && !documentPingResult.ok && documentPingResult.message ? `: ${documentPingResult.message}` : ""}
+            </p>
+          ) : !documentPingResult.data.success ? (
+            <p className="text-sm text-destructive">
+              Upload/download round trip failed{documentPingResult.data.error ? `: ${documentPingResult.data.error}` : ""}
+            </p>
+          ) : (
+            <dl className="grid grid-cols-2 gap-y-3 text-sm">
+              <dt className="text-muted-foreground">Round trip</dt>
+              <dd className="font-medium">Succeeded</dd>
+
+              <dt className="text-muted-foreground">Document ID</dt>
+              <dd className="font-medium">{documentPingResult.data.documentId}</dd>
+
+              <dt className="text-muted-foreground">Blob name</dt>
+              <dd className="font-medium">{documentPingResult.data.blobName ?? "—"}</dd>
             </dl>
           )}
         </CardContent>

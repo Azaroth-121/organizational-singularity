@@ -15,6 +15,14 @@ services:
       timeout: 5s
       retries: 10
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: "azurite-blob --blobHost 0.0.0.0 --blobPort 10000"
+    ports:
+      - "10000:10000"
+    volumes:
+      - os_azurite_data:/data
+
   api:
     build:
       context: ./apps/api
@@ -22,11 +30,17 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       OS_DATABASE_CONNECTION_STRING: "Host=postgres;Port=5432;Database=organizational_singularity;Username=os_app;Password=os_dev_password"
+      # Azurite's well-known dev-account key -- fine to commit, it's a fixed emulator default,
+      # not a real credential (see ADR 0004).
+      Storage__ConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+      Storage__ContainerName: "documents"
     ports:
       - "5080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      azurite:
+        condition: service_started
 
   web:
     build:
@@ -49,3 +63,4 @@ services:
 
 volumes:
   os_postgres_data:
+  os_azurite_data:

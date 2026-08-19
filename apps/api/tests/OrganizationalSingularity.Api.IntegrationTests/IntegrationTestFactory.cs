@@ -4,25 +4,30 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using OrganizationalSingularity.Infrastructure.Persistence;
+using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 
 namespace OrganizationalSingularity.Api.IntegrationTests;
 
 /// <summary>
 /// Hosts the real app (real routing, minimal-API parameter binding, TenantAuthorization,
-/// EF Core) against a disposable, real Postgres 16 container -- not InMemoryDatabase,
-/// which doesn't exercise Postgres-specific behavior like the partial unique index on
-/// Assessment.SupersedesAssessmentId. One container per test class via IClassFixture.
+/// EF Core) against disposable, real Postgres 16 and Azurite containers -- not
+/// InMemoryDatabase or a faked blob client, which wouldn't exercise Postgres-specific
+/// behavior like the partial unique index on Assessment.SupersedesAssessmentId, or real
+/// blob upload/download round-tripping (see ADR 0004). One container pair per test class
+/// via IClassFixture.
 /// </summary>
 public class IntegrationTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
+        .Build();
+
+    private readonly AzuriteContainer _azurite = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite")
         .Build();
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
+        await Task.WhenAll(_postgres.StartAsync(), _azurite.StartAsync());
 
         // Applied here, before the host boots, so Program.cs's own startup work
         // (FrameworkSeeder.EnsureFrameworkV1SeededAsync) runs against an already-migrated
@@ -34,12 +39,18 @@ public class IntegrationTestFactory : WebApplicationFactory<Program>, IAsyncLife
         await db.Database.MigrateAsync();
     }
 
-    Task IAsyncLifetime.DisposeAsync() => _postgres.DisposeAsync().AsTask();
+    async Task IAsyncLifetime.DisposeAsync()
+    {
+        await _postgres.DisposeAsync();
+        await _azurite.DisposeAsync();
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("OS_DATABASE_CONNECTION_STRING", _postgres.GetConnectionString());
+        builder.UseSetting("Storage:ConnectionString", _azurite.GetConnectionString());
+        builder.UseSetting("Storage:ContainerName", "documents");
 
         builder.ConfigureServices(services =>
         {

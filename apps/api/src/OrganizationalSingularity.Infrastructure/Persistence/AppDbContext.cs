@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OrganizationalSingularity.Domain.AiOrchestration;
 using OrganizationalSingularity.Domain.Assessments;
 using OrganizationalSingularity.Domain.Audit;
+using OrganizationalSingularity.Domain.Documents;
 using OrganizationalSingularity.Domain.Framework;
 using OrganizationalSingularity.Domain.Identity;
 using OrganizationalSingularity.Domain.IntelligenceDebt;
@@ -46,6 +47,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     public DbSet<AiRun> AiRuns => Set<AiRun>();
+
+    public DbSet<Document> Documents => Set<Document>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -348,6 +351,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.AssessmentResponseId)
                 .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Document)
+                .WithMany()
+                .HasForeignKey(x => x.DocumentId)
+                .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.AddedByUser)
                 .WithMany()
                 .HasForeignKey(x => x.AddedByUserId)
@@ -429,6 +436,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(x => x.TenantId);
             e.HasIndex(x => new { x.TenantId, x.Operation });
+        });
+
+        modelBuilder.Entity<Document>(e =>
+        {
+            e.HasIndex(x => x.TenantId);
+            e.HasIndex(x => x.AssessmentId);
+            e.HasOne(x => x.Assessment)
+                .WithMany()
+                .HasForeignKey(x => x.AssessmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
