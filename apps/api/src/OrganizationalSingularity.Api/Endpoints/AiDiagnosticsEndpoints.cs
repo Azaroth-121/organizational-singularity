@@ -10,8 +10,12 @@ namespace OrganizationalSingularity.Api.Endpoints;
 /// <summary>
 /// Not a product feature and not in the blueprint's Appendix B API surface -- the only way to
 /// prove real Azure connectivity for ModelGateway once deployed, since nothing else calls it
-/// yet (Prometheus is the real consumer, and comes next). PlatformAdministrator-only. Delete
-/// once Prometheus exists and exercises the gateway for real.
+/// yet (Prometheus is the real consumer, and comes next). Admin-tier gated, same as every
+/// other sensitive endpoint in this codebase (TenantAuthorization.IsAdminTier -- Platform
+/// Administrator or SoverAIgn Architect, not Platform Administrator alone; the platform's own
+/// architect/developer is SoverAIgnArchitect, not PlatformAdministrator, so a stricter gate
+/// here would have blocked the one person actually running this diagnostic day to day).
+/// Delete once Prometheus exists and exercises the gateway for real.
 /// </summary>
 public static class AiDiagnosticsEndpoints
 {
@@ -27,16 +31,16 @@ public static class AiDiagnosticsEndpoints
     {
         var (membership, error) = await TenantAuthorization.AuthorizeAsync(claims, tenantId, provisioning, ct);
         if (error is not null) return error;
-        if (membership!.Role != Domain.Identity.MembershipRole.PlatformAdministrator)
+        if (!TenantAuthorization.IsAdminTier(membership!))
         {
-            return Results.Problem("Only a Platform Administrator can run AI diagnostics.", statusCode: StatusCodes.Status403Forbidden);
+            return Results.Problem("This role cannot run AI diagnostics.", statusCode: StatusCodes.Status403Forbidden);
         }
 
         var result = await gateway.InvokeAsync(
             AiOperation.AnswerExecutiveQuestion,
             "Reply with exactly the word: pong",
             tenantId,
-            membership.UserId,
+            membership!.UserId,
             ct);
 
         var run = await db.AiRuns.SingleAsync(r => r.Id == result.AiRunId, ct);
